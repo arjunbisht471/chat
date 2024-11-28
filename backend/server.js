@@ -1,7 +1,7 @@
-// server.js
 const express = require('express');
 const WebSocket = require('ws');
 const http = require('http');
+const path = require('path');  // For serving static files dynamically
 
 const app = express();
 const server = http.createServer(app);
@@ -9,14 +9,12 @@ const wss = new WebSocket.Server({ server });
 
 let waitingUsers = []; 
 
-
-app.use(express.static('public'));
-
+// Serve static files from the 'public' directory (update if directory structure is different)
+app.use(express.static(path.join(__dirname, 'public')));
 
 wss.on('connection', (ws) => {
   console.log('New client connected');
 
- 
   waitingUsers.push(ws);
 
   // Try to match with another user
@@ -24,7 +22,6 @@ wss.on('connection', (ws) => {
     const user1 = waitingUsers.shift(); 
     const user2 = waitingUsers.shift(); 
 
-   
     user1.send(JSON.stringify({ type: 'matched', partnerId: user2._socket.remoteAddress }));
     user2.send(JSON.stringify({ type: 'matched', partnerId: user1._socket.remoteAddress }));
 
@@ -41,7 +38,7 @@ wss.on('connection', (ws) => {
       // Relay WebRTC signaling message to the partner user
       const partner = waitingUsers.find(user => user._socket.remoteAddress === data.partnerId);
       if (partner) {
-        partner.send(JSON.stringify(data)); // Forward the signaling message to the partner
+        partner.send(JSON.stringify(data)); 
       }
     }
   });
@@ -54,7 +51,8 @@ wss.on('connection', (ws) => {
   });
 });
 
-const port = 5000;
+// Use dynamic port from environment variables or default to 5000 for local testing
+const port = process.env.PORT || 5000;
 server.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });
