@@ -1,15 +1,26 @@
 const express = require('express');
 const WebSocket = require('ws');
-const http = require('http');
-const path = require('path');  // For serving static files dynamically
+const https = require('https');
+const fs = require('fs');
+const path = require('path');
+
+// Load SSL certificates for HTTPS server (adjust paths as needed)
+const options = {
+  cert: fs.readFileSync('/etc/letsencrypt/live/perfactchat.com/fullchain.pem'),
+  key: fs.readFileSync('/etc/letsencrypt/live/perfactchat.com/privkey.pem'),
+};
 
 const app = express();
-const server = http.createServer(app);
+
+// Create HTTPS server
+const server = https.createServer(options, app);
+
+// Create WebSocket server on the HTTPS server
 const wss = new WebSocket.Server({ server });
 
-let waitingUsers = []; 
+let waitingUsers = [];
 
-// Serve static files from the 'public' directory (update if directory structure is different)
+// Serve static files from 'public' (adjust if needed)
 app.use(express.static(path.join(__dirname, 'public')));
 
 wss.on('connection', (ws) => {
@@ -17,20 +28,19 @@ wss.on('connection', (ws) => {
 
   waitingUsers.push(ws);
 
-  // Try to match with another user
+  // Match users for chat
   if (waitingUsers.length >= 2) {
-    const user1 = waitingUsers.shift(); 
-    const user2 = waitingUsers.shift(); 
+    const user1 = waitingUsers.shift();
+    const user2 = waitingUsers.shift();
 
-    user1.send(JSON.stringify({ type: 'matched', partnerId: user2._socket.remoteAddress }));
-    user2.send(JSON.stringify({ type: 'matched', partnerId: user1._socket.remoteAddress }));
+    user1.send(JSON.stringify({ type: 'matched', partnerName: user2._socket.remoteAddress }));
+    user2.send(JSON.stringify({ type: 'matched', partnerName: user1._socket.remoteAddress }));
 
-    // Notify users that they are matched and ready to start the video chat
     user1.send(JSON.stringify({ type: 'videoChat', message: 'You are now matched with someone for video chat!' }));
     user2.send(JSON.stringify({ type: 'videoChat', message: 'You are now matched with someone for video chat!' }));
   }
 
-  // Handle incoming messages (for signaling WebRTC)
+  // Handle incoming WebSocket messages (e.g., WebRTC signaling)
   ws.on('message', (message) => {
     const data = JSON.parse(message);
 
@@ -38,22 +48,20 @@ wss.on('connection', (ws) => {
       // Relay WebRTC signaling message to the partner user
       const partner = waitingUsers.find(user => user._socket.remoteAddress === data.partnerId);
       if (partner) {
-        partner.send(JSON.stringify(data)); 
+        partner.send(JSON.stringify(data));
       }
     }
   });
 
-  // Handle WebSocket close
+  // Handle WebSocket close event
   ws.on('close', () => {
     console.log('Client disconnected');
-    // Remove the user from the waiting queue
     waitingUsers = waitingUsers.filter(user => user !== ws);
   });
 });
 
-// Use dynamic port from environment variables or default to 5000 for local testing
-const port = process.env.PORT || 5001;  // Changing to port 5001
+// Set the server to listen on port 5001 (adjust if needed)
+const port = process.env.PORT || 5001;
 server.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
+  console.log(`Server is running on https://localhost:${port}`);
 });
-
