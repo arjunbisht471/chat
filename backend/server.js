@@ -52,7 +52,8 @@ wss.on('connection', (ws) => {
 });
 
 // Use dynamic port from environment variables or default to 5000 for local testing
-const port = process.env.PORT || 5000;
+const port = process.env.PORT || 5001;  // Changing to port 5001
 server.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
+    console.log(`Server is running on http://localhost:${port}`);
 });
+
