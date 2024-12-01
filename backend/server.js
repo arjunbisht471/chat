@@ -28,14 +28,16 @@ wss.on('connection', (ws) => {
 
   waitingUsers.push(ws);
 
-  // Match users for chat
+  // Match users for chat (if there are at least 2 waiting)
   if (waitingUsers.length >= 2) {
     const user1 = waitingUsers.shift();
     const user2 = waitingUsers.shift();
 
+    // Send matching signal to both users with their partner's IP address
     user1.send(JSON.stringify({ type: 'matched', partnerName: user2._socket.remoteAddress }));
     user2.send(JSON.stringify({ type: 'matched', partnerName: user1._socket.remoteAddress }));
 
+    // Notify both users about the video chat match
     user1.send(JSON.stringify({ type: 'videoChat', message: 'You are now matched with someone for video chat!' }));
     user2.send(JSON.stringify({ type: 'videoChat', message: 'You are now matched with someone for video chat!' }));
   }
@@ -45,10 +47,13 @@ wss.on('connection', (ws) => {
     const data = JSON.parse(message);
 
     if (data.type === 'offer' || data.type === 'answer' || data.type === 'candidate') {
-      // Relay WebRTC signaling message to the partner user
+      // Look for the partner to send signaling data to
       const partner = waitingUsers.find(user => user._socket.remoteAddress === data.partnerId);
+
       if (partner) {
         partner.send(JSON.stringify(data));
+      } else {
+        console.log('Partner not found for signaling');
       }
     }
   });
@@ -56,6 +61,7 @@ wss.on('connection', (ws) => {
   // Handle WebSocket close event
   ws.on('close', () => {
     console.log('Client disconnected');
+    // Remove the disconnected user from the waiting queue
     waitingUsers = waitingUsers.filter(user => user !== ws);
   });
 });
