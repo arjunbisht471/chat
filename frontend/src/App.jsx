@@ -55,7 +55,7 @@ function App() {
   // Function to start chat
   const startChat = () => {
     if (username.trim()) {
-     const socket = new WebSocket("ws://perfactchat.com:5000");
+     const socket = new WebSocket("ws://perfactchat.com:5001");
       setWs(socket);
       setIsChatting(true);
     } else {
