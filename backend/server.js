@@ -1,73 +1,177 @@
-const express = require('express');
-const WebSocket = require('ws');
-const https = require('https');
-const fs = require('fs');
-const path = require('path');
+const WebSocket = require("ws");
+const http = require("http");
+const axios = require("axios");
 
-// Load SSL certificates for HTTPS server (adjust paths as needed)
-const options = {
-  cert: fs.readFileSync('/etc/letsencrypt/live/perfactchat.com/fullchain.pem'),
-  key: fs.readFileSync('/etc/letsencrypt/live/perfactchat.com/privkey.pem'),
-};
-
-const app = express();
-
-// Create HTTPS server
-const server = https.createServer(options, app);
-
-// Create WebSocket server on the HTTPS server
+const server = http.createServer();
 const wss = new WebSocket.Server({ server });
 
-let waitingUsers = [];
+let users = [];
 
-// Serve static files from 'public' (adjust if needed)
-app.use(express.static(path.join(__dirname, 'public')));
-
-wss.on('connection', (ws) => {
-  console.log('New client connected');
-
-  waitingUsers.push(ws);
-
-  // Match users for chat (if there are at least 2 waiting)
-  if (waitingUsers.length >= 2) {
-    const user1 = waitingUsers.shift();
-    const user2 = waitingUsers.shift();
-
-    // Send matching signal to both users with their partner's IP address
-    user1.send(JSON.stringify({ type: 'matched', partnerName: user2._socket.remoteAddress }));
-    user2.send(JSON.stringify({ type: 'matched', partnerName: user1._socket.remoteAddress }));
-
-    // Notify both users about the video chat match
-    user1.send(JSON.stringify({ type: 'videoChat', message: 'You are now matched with someone for video chat!' }));
-    user2.send(JSON.stringify({ type: 'videoChat', message: 'You are now matched with someone for video chat!' }));
+function sendToClient(client, message) {
+  if (client && client.readyState === WebSocket.OPEN) {
+    client.send(JSON.stringify(message));
   }
+}
 
-  // Handle incoming WebSocket messages (e.g., WebRTC signaling)
-  ws.on('message', (message) => {
-    const data = JSON.parse(message);
+// Function to find a partner for the user
+function findPartner(client) {
+  const user = users.find((u) => u.ws === client);
+  if (!user) return;
 
-    if (data.type === 'offer' || data.type === 'answer' || data.type === 'candidate') {
-      // Look for the partner to send signaling data to
-      const partner = waitingUsers.find(user => user._socket.remoteAddress === data.partnerId);
+  const availableUsers = users.filter((u) => u.ws !== client && !u.partner);
+  if (availableUsers.length > 0) {
+    const partner = availableUsers[Math.floor(Math.random() * availableUsers.length)];
 
-      if (partner) {
-        partner.send(JSON.stringify(data));
-      } else {
-        console.log('Partner not found for signaling');
+    // Set partners
+    user.partner = partner.ws;
+    partner.partner = user.ws;
+
+    // Notify both clients of the match
+    sendToClient(client, { type: "matched", partnerName: partner.username });
+    sendToClient(partner.ws, { type: "matched", partnerName: user.username });
+  } else {
+    sendToClient(client, { type: "waiting", message: "Waiting for a partner..." });
+  }
+}
+
+// Function to verify reCAPTCHA token
+async function verifyRecaptcha(token) {
+  const secretKey = process.env.RECAPTCHA_SECRET || "your-secret-key";
+  try {
+    const response = await axios.post(
+      `https://www.google.com/recaptcha/api/siteverify`,
+      {},
+      {
+        params: { secret: secretKey, response: token },
       }
+    );
+    return response.data.success;
+  } catch (err) {
+    console.error("Error verifying reCAPTCHA:", err.message);
+    return false;
+  }
+}
+
+// WebSocket connection handling
+wss.on("connection", (ws) => {
+  ws.isAlive = true;
+
+  ws.on("message", async (message) => {
+    try {
+      const data = JSON.parse(message);
+
+      switch (data.type) {
+        case "setUsername":
+          const isValidRecaptcha = await verifyRecaptcha(data.recaptchaToken);
+          if (!isValidRecaptcha) {
+            sendToClient(ws, { type: "error", message: "reCAPTCHA validation failed." });
+            return;
+          }
+
+          const username = data.username.trim();
+          if (!username) {
+            sendToClient(ws, { type: "error", message: "Invalid username." });
+            return;
+          }
+
+          users.push({ ws, username, partner: null });
+          findPartner(ws);
+          break;
+
+        case "image":
+          const imageSender = users.find((user) => user.ws === ws);
+          if (imageSender?.partner) {
+            sendToClient(imageSender.partner, {
+              type: "image",
+              content: data.content,
+              username: imageSender.username,
+            });
+          }
+          break;
+
+        case "videoOffer":
+          const offerSender = users.find((user) => user.ws === ws);
+          if (offerSender?.partner) {
+            sendToClient(offerSender.partner, {
+              type: "videoOffer",
+              offer: data.offer,
+              username: offerSender.username,
+            });
+          }
+          break;
+
+        case "videoAnswer":
+          const answerSender = users.find((user) => user.ws === ws);
+          if (answerSender?.partner) {
+            sendToClient(answerSender.partner, {
+              type: "videoAnswer",
+              answer: data.answer,
+              username: answerSender.username,
+            });
+          }
+          break;
+
+        case "candidate":
+          const candidateSender = users.find((user) => user.ws === ws);
+          if (candidateSender?.partner) {
+            sendToClient(candidateSender.partner, {
+              type: "candidate",
+              candidate: data.candidate,
+            });
+          }
+          break;
+
+        case "skip":
+          const skippingUser = users.find((user) => user.ws === ws);
+          if (skippingUser) {
+            if (skippingUser.partner) {
+              sendToClient(skippingUser.partner, { type: "skip" });
+              const partnerUser = users.find((user) => user.ws === skippingUser.partner);
+              if (partnerUser) partnerUser.partner = null;
+            }
+            skippingUser.partner = null;
+            findPartner(ws);
+          }
+          break;
+
+        default:
+          sendToClient(ws, { type: "error", message: "Unknown message type." });
+      }
+    } catch (error) {
+      console.error("Error handling message:", error.message);
+      sendToClient(ws, { type: "error", message: "An error occurred." });
     }
   });
 
-  // Handle WebSocket close event
-  ws.on('close', () => {
-    console.log('Client disconnected');
-    // Remove the disconnected user from the waiting queue
-    waitingUsers = waitingUsers.filter(user => user !== ws);
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
+
+  ws.on("close", () => {
+    const userIndex = users.findIndex((user) => user.ws === ws);
+    if (userIndex !== -1) {
+      const user = users[userIndex];
+      if (user.partner) {
+        sendToClient(user.partner, { type: "partnerDisconnected" });
+        const partnerUser = users.find((user) => user.partner === ws);
+        if (partnerUser) partnerUser.partner = null;
+      }
+      users.splice(userIndex, 1);
+    }
   });
 });
 
-// Set the server to listen on port 5001 (adjust if needed)
-const port = process.env.PORT || 5001;
-server.listen(port, () => {
-  console.log(`Server is running on https://localhost:${port}`);
-});
+// Ping-pong mechanism to detect and close stale connections
+setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (!ws.isAlive) {
+      ws.terminate();
+    } else {
+      ws.isAlive = false;
+      ws.ping();
+    }
+  });
+}, 30000);
+
+// Start the server
+server.listen(5002, () => console.log("Server running on port 5002"));
