@@ -1,686 +1,1099 @@
-"use client"
-
-import { useState, useEffect, useRef } from "react"
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react"
 import {
-  FaPaperPlane,
-  FaRandom,
-  FaMoon,
-  FaSun,
-  FaComments,
-  FaVideo,
+  FaArrowLeft,
   FaBars,
-  FaTimes,
+  FaBolt,
+  FaChevronDown,
+  FaChevronUp,
+  FaComments,
+  FaCommentDots,
+  FaClock,
+  FaHeart,
   FaHome,
-  FaCog,
+  FaLock,
+  FaMusic,
+  FaMoon,
+  FaPaperPlane,
+  FaPaperclip,
+  FaRandom,
+  FaRocket,
+  FaShieldAlt,
+  FaSmile,
+  FaSun,
+  FaVideo,
 } from "react-icons/fa"
-import VideoChat from "./Components/VideoChat"
-import BlogPage from "./Components/BlogPage"
-import ReCAPTCHA from "react-google-recaptcha"
+import chatLogo from "./assets/chat.png"
+import { getWebSocketUrl } from "./config"
 import "./App.css"
 
+void React
+
+const VideoChat = lazy(() => import("./Components/VideoChat"))
+
+const BLOGS = [
+  {
+    id: "confidence",
+    category: "Conversation Confidence",
+    readTime: "4 min read",
+    title: "Why anonymous chat makes starting conversations easier",
+    excerpt:
+      "PerfectChat removes the pressure of profiles and expectations, making it easier to talk naturally from the very first message.",
+    body: [
+      "Anonymous chat works best when it feels easy to enter and easy to leave. You are not trying to impress a profile or manage a long history. You are simply talking to someone new in the moment.",
+      "That makes PerfectChat a natural space for building confidence. You learn how to open a conversation, keep it moving, and recover when a chat feels awkward. Those are real communication skills, even in a casual setting.",
+      "The strongest experience comes from simple actions, fast replies, and a layout that keeps your attention on the conversation instead of unnecessary distractions.",
+    ],
+  },
+  {
+    id: "safety",
+    category: "Safer Conversations",
+    readTime: "3 min read",
+    title: "What makes anonymous chat feel safe and comfortable",
+    excerpt:
+      "People stay longer when chat feels clear, calm, and easy to control from the first second to the last.",
+    body: [
+      "People feel more comfortable in anonymous chat when the product keeps them in control. That means clear connection status, a visible skip action, and no confusing steps between opening the app and starting a conversation.",
+      "A safe experience is not only about moderation. It is also about clarity. Users should always know whether they are waiting, connected, typing, or disconnected.",
+      "Small details matter here: smooth message delivery, helpful system feedback, and simple actions that never make the interface feel stressful.",
+    ],
+  },
+  {
+    id: "matching",
+    category: "Instant Matching",
+    readTime: "5 min read",
+    title: "Why fast matching matters more than flashy extras",
+    excerpt:
+      "In random chat, momentum matters. The sooner people connect, the more likely they are to stay engaged.",
+    body: [
+      "Long waits break the mood of random chat. When matching is quick, the product feels alive and people are more willing to start the next conversation with energy.",
+      "PerfectChat works best when the transition from one chat to another feels immediate. A clear status, a dependable next action, and minimal friction all help keep that rhythm intact.",
+      "Fast matching also supports healthier behavior. If a conversation is not working, people should be able to move on without frustration and try again right away.",
+    ],
+  },
+  {
+    id: "conversation",
+    category: "Conversation Flow",
+    readTime: "4 min read",
+    title: "How to keep a random conversation going after hello",
+    excerpt:
+      "Simple, specific questions create momentum much faster than generic small talk.",
+    body: [
+      "The best random chat questions are light, specific, and easy to build on. Ask about music, current mood, favorite food, travel plans, or the funniest thing that happened today.",
+      "The goal is not to sound clever. The goal is to create momentum. Once both people are replying comfortably, the rest of the conversation usually becomes easier on its own.",
+      "PerfectChat supports that flow best when the conversation stays front and center, with clean message history and simple actions that never interrupt the exchange.",
+    ],
+  },
+]
+
+const CHAT_TAGS = [
+  { icon: FaLock, label: "Anonymous", tone: "purple" },
+  { icon: FaShieldAlt, label: "Safe Chat", tone: "green" },
+  { icon: FaCommentDots, label: "Text Chat", tone: "blue" },
+  { icon: FaMusic, label: "Interests: Music", tone: "pink" },
+]
+
+const SAFETY_POINTS = [
+  "Be friendly and open-minded",
+  "No harassment or hate speech",
+  "Keep personal info private",
+]
+
+const HOME_HIGHLIGHTS = [
+  { icon: FaLock, label: "Anonymous" },
+  { icon: FaBolt, label: "Instant Match" },
+  { icon: FaShieldAlt, label: "Easy Exit" },
+]
+
+const TRUST_FEATURES = [
+  {
+    icon: FaLock,
+    title: "100% Anonymous",
+    description: "No personal info required",
+  },
+  {
+    icon: FaBolt,
+    title: "Instant Connections",
+    description: "Matched in seconds",
+  },
+  {
+    icon: FaShieldAlt,
+    title: "Safe & Respectful",
+    description: "Our community guidelines",
+  },
+  {
+    icon: FaArrowLeft,
+    title: "Leave Anytime",
+    description: "No strings attached",
+  },
+]
+
+const formatMessageTime = (timestamp) => {
+  if (!timestamp) {
+    return ""
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(timestamp)
+}
+
+const formatElapsedTime = (seconds) => {
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const remainingSeconds = seconds % 60
+
+  return [hours, minutes, remainingSeconds].map((value) => String(value).padStart(2, "0")).join(":")
+}
+
+const createMessage = (sender, content, type = "text") => ({
+  sender,
+  content,
+  type,
+  createdAt: Date.now(),
+})
+
 function App() {
+  const [view, setView] = useState("home")
+  const [activeBlogId, setActiveBlogId] = useState(null)
   const [username, setUsername] = useState("")
-  const [partnerName, setPartnerName] = useState(null)
+  const [selectedMode, setSelectedMode] = useState("")
+  const [draftMessage, setDraftMessage] = useState("")
   const [messages, setMessages] = useState([])
-  const [ws, setWs] = useState(null)
-  const [darkMode, setDarkMode] = useState(false)
-  const [showTextChat, setShowTextChat] = useState(false)
-  const [showVideoChat, setShowVideoChat] = useState(false)
-  const [showBlogPage, setShowBlogPage] = useState(false)
-  const [currentBlogId, setCurrentBlogId] = useState(null)
-  const [isTyping, setIsTyping] = useState(false)
+  const [partnerName, setPartnerName] = useState("")
   const [isMatching, setIsMatching] = useState(false)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [isTyping, setIsTyping] = useState(false)
   const [connectionError, setConnectionError] = useState("")
-  const [recaptchaVerified, setRecaptchaVerified] = useState(false)
-  const messagesEndRef = useRef(null)
-  const inputRef = useRef(null)
+  const [darkMode, setDarkMode] = useState(false)
+  const [ws, setWs] = useState(null)
+  const [matchedAt, setMatchedAt] = useState(null)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [showChatDetails, setShowChatDetails] = useState(true)
+  const [showChatMenu, setShowChatMenu] = useState(false)
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window !== "undefined" ? window.innerHeight : 0,
+  )
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false)
+
+  const wsRef = useRef(null)
   const pingIntervalRef = useRef(null)
   const typingTimeoutRef = useRef(null)
-  const recaptchaRef = useRef(null)
+  const manualCloseRef = useRef(false)
+  const messagesEndRef = useRef(null)
+  const messageInputRef = useRef(null)
+  const messagesAreaRef = useRef(null)
 
-  useEffect(() => {
-    checkForBlogRoute()
+  const activeBlog = BLOGS.find((blog) => blog.id === activeBlogId) || null
+  const isConnected = Boolean(partnerName)
+  const connectionLabel = isConnected
+    ? `Connected to ${partnerName}`
+    : isMatching
+      ? "Looking for a new match"
+      : "Disconnected"
+  const connectionCardTitle = isConnected
+    ? "Connected to a random user"
+    : isMatching
+      ? "Finding your next conversation"
+      : "Start a new anonymous chat"
+  const clearConnectionTimers = useCallback(() => {
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current)
+      pingIntervalRef.current = null
+    }
 
-    window.addEventListener("popstate", checkForBlogRoute)
-
-    return () => {
-      window.removeEventListener("popstate", checkForBlogRoute)
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current)
+      typingTimeoutRef.current = null
     }
   }, [])
 
-  const checkForBlogRoute = () => {
-    const path = window.location.pathname
-    if (path.startsWith("/blog/")) {
-      const blogId = path.split("/blog/")[1]
-      if (blogId) {
-        setCurrentBlogId(blogId)
-        setShowBlogPage(true)
-        setShowTextChat(false)
-        setShowVideoChat(false)
+  const cleanupSocket = useCallback(() => {
+    clearConnectionTimers()
+
+    const currentSocket = wsRef.current
+    if (currentSocket) {
+      manualCloseRef.current = true
+      if (currentSocket.readyState === WebSocket.OPEN || currentSocket.readyState === WebSocket.CONNECTING) {
+        currentSocket.close(1000, "Client reset")
       }
-    } else {
-      setShowBlogPage(false)
+    }
+
+    wsRef.current = null
+    setWs(null)
+  }, [clearConnectionTimers])
+
+  const addSystemMessage = (content) => {
+    setMessages((current) => [...current, createMessage("System", content, "system")])
+  }
+
+  const sendSocketMessage = (payload) => {
+    const currentSocket = wsRef.current
+    if (!currentSocket || currentSocket.readyState !== WebSocket.OPEN) {
+      return false
+    }
+
+    currentSocket.send(JSON.stringify(payload))
+    return true
+  }
+
+  const requestPartner = () => {
+    const sent = sendSocketMessage({ type: "findPartner" })
+    if (sent) {
+      setIsMatching(true)
+      setPartnerName("")
+      setIsTyping(false)
+      setMatchedAt(null)
     }
   }
 
-  const navigateToBlog = (blogId) => {
-    setCurrentBlogId(blogId)
-    setShowBlogPage(true)
-    setShowTextChat(false)
-    setShowVideoChat(false)
+  const handleIncomingMessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
 
-    window.history.pushState({}, "", `/blog/${blogId}`)
+      switch (data.type) {
+        case "usernameSet":
+          requestPartner()
+          break
+
+        case "matched":
+          setPartnerName(data.partnerName || "Stranger")
+          setMessages([])
+          setIsMatching(false)
+          setIsTyping(false)
+          setConnectionError("")
+          setMatchedAt(Date.now())
+          setTimeout(() => {
+            messageInputRef.current?.focus()
+          }, 50)
+          break
+
+        case "waiting":
+          setIsMatching(true)
+          setMatchedAt(null)
+          break
+
+        case "textMessage":
+          setMessages((current) => [
+            ...current,
+            createMessage("Stranger", data.content),
+          ])
+          setIsTyping(false)
+          break
+
+        case "typing":
+          setIsTyping(Boolean(data.isTyping))
+          break
+
+        case "partnerDisconnected":
+          setPartnerName("")
+          setIsTyping(false)
+          setIsMatching(true)
+          setMatchedAt(null)
+          addSystemMessage("Your chat partner disconnected. Finding someone new...")
+          setTimeout(() => {
+            requestPartner()
+          }, 600)
+          break
+
+        case "error":
+          setConnectionError(data.message || "Something went wrong.")
+          addSystemMessage(data.message || "Something went wrong.")
+          break
+
+        case "connectionEstablished":
+        case "connectionReady":
+        case "pong":
+          break
+
+        default:
+          break
+      }
+    } catch (error) {
+      console.error("Failed to parse websocket message", error)
+    }
   }
 
-  useEffect(() => {
-    if (!ws) return
+  const startTextChat = () => {
+    const trimmedUsername = username.trim()
+    if (!trimmedUsername) {
+      setConnectionError("Please enter your nickname before starting.")
+      return
+    }
 
-    const handleOpen = () => {
-      console.log("WebSocket connection established")
+    cleanupSocket()
+    setConnectionError("")
+    setMessages([])
+    setPartnerName("")
+    setIsTyping(false)
+    setIsMatching(true)
+    setDraftMessage("")
+    setMatchedAt(null)
+    setShowChatMenu(false)
+    setView("text")
 
-      ws.send(
-        JSON.stringify({
-          type: "setUsername",
-          username,
-          chatType: "text", // Explicitly set chat type for text chat
-        }),
-      )
+    const socket = new WebSocket(getWebSocketUrl())
+    wsRef.current = socket
+    setWs(socket)
+
+    socket.onopen = () => {
+      manualCloseRef.current = false
+      sendSocketMessage({
+        type: "setUsername",
+        username: trimmedUsername,
+        chatType: "text",
+      })
 
       pingIntervalRef.current = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "ping" }))
-        }
-      }, 30000)
+        sendSocketMessage({ type: "ping" })
+      }, 25000)
     }
 
-    const handleMessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        console.log("Received message:", data)
+    
+    socket.onmessage = handleIncomingMessage
 
-        switch (data.type) {
-          case "usernameSet":
-            console.log("Username set:", data.username)
-            // Auto-find partner for text chat
-            setTimeout(() => {
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: "findPartner" }))
-              }
-            }, 500)
-            break
+    socket.onerror = () => {
+      setConnectionError("Could not connect to chat server. Please try again.")
+    }
 
-          case "matched":
-            setPartnerName(data.partnerName)
-            setMessages([])
-            setIsMatching(false)
-            console.log("Matched with:", data.partnerName)
-            break
+    socket.onclose = (event) => {
+      clearConnectionTimers()
+      wsRef.current = null
+      setWs(null)
 
-          case "textMessage":
-            setMessages((prev) => [
-              ...prev,
-              {
-                sender: data.username === username ? "You" : "Stranger",
-                content: data.content,
-                type: "text",
-              },
-            ])
-            setIsTyping(false)
-            break
+      const wasManualClose = manualCloseRef.current
+      manualCloseRef.current = false
 
-          case "waiting":
-            console.log("Waiting for partner:", data.message)
-            setIsMatching(true)
-            break
-
-          case "error":
-            console.error("Server error:", data.message)
-            setConnectionError(data.message)
-            break
-
-          case "partnerDisconnected":
-            setPartnerName(null)
-            setIsMatching(true)
-            setMessages((prev) => [
-              ...prev,
-              {
-                sender: "System",
-                content: "Your chat partner has disconnected.",
-                type: "system",
-              },
-            ])
-            // Auto-find new partner
-            setTimeout(() => {
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: "findPartner" }))
-              }
-            }, 1000)
-            break
-
-          case "skip":
-            setPartnerName(null)
-            setIsMatching(true)
-            setMessages((prev) => [
-              ...prev,
-              {
-                sender: "System",
-                content: "Looking for a new chat partner...",
-                type: "system",
-              },
-            ])
-            break
-
-          case "typing":
-            if (data.from !== username) {
-              setIsTyping(data.isTyping)
-              if (data.isTyping) {
-                if (typingTimeoutRef.current) {
-                  clearTimeout(typingTimeoutRef.current)
-                }
-                typingTimeoutRef.current = setTimeout(() => {
-                  setIsTyping(false)
-                }, 3000)
-              }
-            }
-            break
-
-          case "pong":
-            console.log("Received pong from server")
-            break
-
-          default:
-            console.warn("Unknown message type:", data.type)
-        }
-      } catch (error) {
-        console.error("Error parsing message:", error)
+      if (wasManualClose) {
+        return
       }
-    }
 
-    const handleClose = (event) => {
-      console.log("WebSocket connection closed:", event.code, event.reason)
-      clearInterval(pingIntervalRef.current)
+      setPartnerName("")
+      setIsTyping(false)
+      setIsMatching(false)
+      setMatchedAt(null)
 
       if (event.code !== 1000) {
-        setConnectionError("Connection lost. Please try reconnecting.")
+        setConnectionError("Connection closed. Please reconnect.")
       }
-    }
-
-    const handleError = (error) => {
-      console.error("WebSocket error:", error)
-      setConnectionError("Connection error. Please try again later.")
-    }
-
-    ws.addEventListener("open", handleOpen)
-    ws.addEventListener("message", handleMessage)
-    ws.addEventListener("close", handleClose)
-    ws.addEventListener("error", handleError)
-
-    return () => {
-      ws.removeEventListener("open", handleOpen)
-      ws.removeEventListener("message", handleMessage)
-      ws.removeEventListener("close", handleClose)
-      ws.removeEventListener("error", handleError)
-
-      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-        ws.close()
-      }
-
-      clearInterval(pingIntervalRef.current)
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current)
-      }
-    }
-  }, [ws, username])
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
-
-  const toggleDarkMode = () => {
-    setDarkMode(!darkMode)
-    if (!darkMode) {
-      document.documentElement.classList.add("dark-theme")
-    } else {
-      document.documentElement.classList.remove("dark-theme")
     }
   }
 
-  const handleRecaptchaChange = (value) => {
-    setRecaptchaVerified(!!value)
+  const handleStartChat = () => {
+    if (!selectedMode) {
+      setConnectionError("Please choose text chat or video chat first.")
+      return
+    }
+
+    if (!username.trim()) {
+      setConnectionError("Please enter your nickname before starting.")
+      return
+    }
+
+    if (selectedMode === "video") {
+      setConnectionError("")
+      setView("video")
+      return
+    }
+
+    startTextChat()
   }
 
-  const blogs = [
-    {
-      id: "privacy-matters",
-      title: "Why Privacy Matters in Online Chats",
-      content:
-        "Online communication should be private and secure. Learn why encryption and anonymity are important in modern chat applications.",
-    },
-    {
-      id: "mental-health-benefits",
-      title: "How Anonymous Chatting Can Help Mental Health",
-      content:
-        "Anonymous chat platforms provide a safe space to express thoughts without judgment. Discover how these platforms support mental wellness.",
-    },
-    {
-      id: "online-safety-tips",
-      title: "Online Safety Tips for Anonymous Chatting",
-      content:
-        "Even when chatting anonymously, it's important to follow safety practices that protect your digital wellbeing.",
-    },
-    {
-      id: "ultimate-platform",
-      title: "PerfectChat: The Ultimate Anonymous Chat Platform",
-      content:
-        " It is famous because it is a fun activity for all kinds of people. Chatting with peers is something that both girls and boys love.",
-    },
-    {
-      id: "talk-to-strangers-at-live-chats-rooms",
-      title: "Talk to Strangers at Live Chat Rooms Online",
-      content:
-        " It is famous because it is a fun activity for all kinds of people. Chatting with peers is something that both girls and boys love.",
-    },
-    {
-      id: "talk-to-strangers-at-live-chats-rooms-2",
-      title: "Talk to Strangers at Live Chat Rooms Online",
-      content:
-        " It is famous because it is a fun activity for all kinds of people. Chatting with peers is something that both girls and boys love.",
-    },
-    {
-      id: "how-perfect-chat-helps-you-build-social-confidence",
-      title: "How PerfectChat Helps You Build Social Confidence",
-      content:
-        " Discover how PerfectChat's anonymous, real-time chatting features empower users to overcome social anxiety, practice communication skills, and build real social confidence in a safe environment.",
-    },
-    {
-      id: "breaking-the-ice-daily",
-      title: "Breaking The Ice Daily",
-      content:
-        "Breaking the Ice Daily: How PerfectChat Makes Socializing Effortless",
-    },
-  ]
-
-  const startChat = () => {
-    if (username.trim() && recaptchaVerified) {
-      try {
-        setConnectionError("")
-        console.log("Attempting to connect to WebSocket server...")
-
-        const socket = new WebSocket("wss://perfactchat.com:5002")
-
-        socket.onopen = () => {
-          console.log("WebSocket connection opened")
-
-          socket.send(
-            JSON.stringify({
-              type: "setUsername",
-              username: username.trim(),
-              chatType: "text", // Explicitly set chat type for text chat
-            }),
-          )
-
-          setWs(socket)
-          setIsMatching(true)
-          setShowTextChat(true)
-        }
-
-        socket.onerror = (error) => {
-          console.error("WebSocket error:", error)
-          setConnectionError("Connection failed. Please try again.")
-        }
-
-        socket.onclose = (event) => {
-          console.log("WebSocket connection closed:", event)
-          if (event.code !== 1000) {
-            setConnectionError("Connection lost. Please reconnect.")
-          }
-        }
-      } catch (error) {
-        console.error("Failed to create WebSocket:", error)
-        setConnectionError("Failed to connect. Please try again later.")
-      }
-    } else if (!recaptchaVerified) {
-      setConnectionError("Please complete the reCAPTCHA verification.")
-    } else {
-      setConnectionError("Please enter a username.")
+  const sendTypingSignal = () => {
+    if (!partnerName) {
+      return
     }
+
+    sendSocketMessage({ type: "typing", isTyping: true })
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current)
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      sendSocketMessage({ type: "typing", isTyping: false })
+    }, 950)
   }
 
-  const findPartner = () => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      setIsMatching(true)
-      ws.send(JSON.stringify({ type: "findPartner" }))
-    }
+  const handleDraftChange = (event) => {
+    setDraftMessage(event.target.value)
+    sendTypingSignal()
   }
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    const message = e.target.message.value.trim()
-    if (message && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "textMessage", content: message }))
-      setMessages((prev) => [...prev, { sender: "You", content: message, type: "text" }])
-      e.target.message.value = ""
-      inputRef.current.focus()
+  const handleSubmit = (event) => {
+    event.preventDefault()
+
+    const content = draftMessage.trim()
+    if (!content || !partnerName) {
+      return
     }
-  }
 
-  const handleTyping = () => {
-    if (ws && ws.readyState === WebSocket.OPEN && partnerName) {
-      ws.send(JSON.stringify({ type: "typing", isTyping: true }))
-
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current)
-      }
-
-      typingTimeoutRef.current = setTimeout(() => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "typing", isTyping: false }))
-        }
-      }, 1000)
+    const sent = sendSocketMessage({ type: "textMessage", content })
+    if (!sent) {
+      setConnectionError("Message could not be sent because the connection is closed.")
+      return
     }
+
+    setMessages((current) => [...current, createMessage("You", content)])
+    setDraftMessage("")
+    sendSocketMessage({ type: "typing", isTyping: false })
+    messageInputRef.current?.focus()
   }
 
   const handleSkip = () => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "skip" }))
-      setPartnerName(null)
-      setIsMatching(true)
+    if (!sendSocketMessage({ type: "skip" })) {
+      return
     }
+
+    setPartnerName("")
+    setIsTyping(false)
+    setIsMatching(true)
+    setMatchedAt(null)
+    addSystemMessage("Looking for a new conversation...")
   }
 
-  const goToHome = () => {
-    setShowTextChat(false)
-    setShowVideoChat(false)
-    setShowBlogPage(false)
-    if (ws) {
-      ws.close()
-      setWs(null)
-    }
-    setPartnerName(null)
+  const goHome = () => {
+    cleanupSocket()
+    setView("home")
+    setActiveBlogId(null)
     setMessages([])
+    setPartnerName("")
+    setIsTyping(false)
     setIsMatching(false)
-    setMobileMenuOpen(false)
-    setRecaptchaVerified(false)
+    setDraftMessage("")
     setConnectionError("")
-
-    window.history.pushState({}, "", "/")
+    setMatchedAt(null)
+    setShowChatMenu(false)
   }
 
-  const toggleMobileMenu = () => {
-    setMobileMenuOpen(!mobileMenuOpen)
+  const toggleDarkMode = () => {
+    setDarkMode((current) => !current)
+  }
+
+  const openBlog = (blogId) => {
+    setActiveBlogId(blogId)
+    setView("blog")
+  }
+
+  const goToBlogList = () => {
+    setView("home")
+  }
+
+  const handleComposerFocus = () => {
+    setTimeout(() => {
+      const messagesArea = messagesAreaRef.current
+      if (messagesArea) {
+        messagesArea.scrollTo({
+          top: messagesArea.scrollHeight,
+          behavior: "smooth",
+        })
+      }
+    }, 250)
+  }
+
+  useEffect(() => {
+    return () => {
+      cleanupSocket()
+    }
+  }, [cleanupSocket])
+
+  useEffect(() => {
+    const messagesArea = messagesAreaRef.current
+    if (messagesArea) {
+      messagesArea.scrollTo({
+        top: messagesArea.scrollHeight,
+        behavior: messages.length > 0 ? "smooth" : "auto",
+      })
+    }
+  }, [messages, isTyping])
+
+  useEffect(() => {
+    if (!matchedAt) {
+      setElapsedSeconds(0)
+      return undefined
+    }
+
+    const updateElapsedTime = () => {
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - matchedAt) / 1000)))
+    }
+
+    updateElapsedTime()
+    const timer = window.setInterval(updateElapsedTime, 1000)
+    return () => window.clearInterval(timer)
+  }, [matchedAt])
+
+  useEffect(() => {
+    const updateViewportState = () => {
+      const currentViewportHeight = Math.round(window.visualViewport?.height || window.innerHeight)
+      const keyboardOffset = window.innerHeight - currentViewportHeight
+
+      setViewportHeight(currentViewportHeight)
+      setIsKeyboardOpen(window.innerWidth <= 768 && keyboardOffset > 160)
+    }
+
+    updateViewportState()
+
+    window.addEventListener("resize", updateViewportState)
+    window.visualViewport?.addEventListener("resize", updateViewportState)
+    window.visualViewport?.addEventListener("scroll", updateViewportState)
+
+    return () => {
+      window.removeEventListener("resize", updateViewportState)
+      window.visualViewport?.removeEventListener("resize", updateViewportState)
+      window.visualViewport?.removeEventListener("scroll", updateViewportState)
+    }
+  }, [])
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" })
+  }, [view])
+
+  if (view === "video") {
+    return (
+      <div className={`app-container ${darkMode ? "dark" : "light"}`}>
+        <div className="video-chat-shell">
+          <Suspense fallback={<div className="loading-screen">Loading video chat...</div>}>
+            <VideoChat initialUsername={username.trim()} onBack={goHome} />
+          </Suspense>
+        </div>
+      </div>
+    )
+  }
+
+  if (view === "text") {
+    return (
+      <div className={`app-container chat-app ${darkMode ? "dark" : "light"}`}>
+        <div
+          className={`fullscreen-chat-layout chat-redesign ${isKeyboardOpen ? "keyboard-open" : ""}`}
+          style={{
+            height:
+              typeof window !== "undefined" && window.innerWidth <= 768 && viewportHeight
+                ? `${viewportHeight}px`
+                : undefined,
+          }}
+        >
+          <div className="chat-ambient chat-ambient-left"></div>
+          <div className="chat-ambient chat-ambient-right"></div>
+
+          <div className="chat-shell">
+            <div className="fullscreen-chat-header chat-header-redesign">
+              <div className="chat-brand-cluster">
+                <img src={chatLogo} alt="PerfectChat logo" className="chat-header-logo" />
+                <div className="chat-brand-copy">
+                  <span className="fullscreen-brand-name chat-brand-name">PerfectChat</span>
+                  <span className="chat-brand-subtitle">Anonymous text chat that stays clean and easy.</span>
+                </div>
+              </div>
+
+              <div className="chat-header-actions">
+                <button
+                  className="chat-primary-action"
+                  onClick={handleSkip}
+                  title="Find someone new"
+                  type="button"
+                  disabled={!ws}
+                >
+                  <FaRandom />
+                  <span>Next Match</span>
+                </button>
+
+                <div className="chat-menu-wrap">
+                  <button
+                    className="chat-icon-button"
+                    onClick={() => setShowChatMenu((current) => !current)}
+                    title="Open chat menu"
+                    type="button"
+                  >
+                    <FaBars />
+                  </button>
+
+                  {showChatMenu && (
+                    <div className="chat-menu-popover">
+                      <button
+                        className="chat-menu-item"
+                        onClick={() => {
+                          setShowChatMenu(false)
+                          goHome()
+                        }}
+                        type="button"
+                      >
+                        <FaHome />
+                        <span>Home</span>
+                      </button>
+                      <button
+                        className="chat-menu-item"
+                        onClick={() => {
+                          toggleDarkMode()
+                          setShowChatMenu(false)
+                        }}
+                        type="button"
+                      >
+                        {darkMode ? <FaSun /> : <FaMoon />}
+                        <span>{darkMode ? "Light Mode" : "Dark Mode"}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="chat-content-grid">
+              <section className="chat-main-column">
+                <button
+                  className={`chat-connection-card chat-fixed-strip ${isConnected ? "connected" : "searching"}`}
+                  onClick={() => setShowChatDetails((current) => !current)}
+                  type="button"
+                >
+                  <div className="chat-connection-presence">
+                    <span className="chat-presence-orb"></span>
+                  </div>
+                  <div className="chat-connection-copy">
+                    <span className="chat-connection-title">{connectionCardTitle}</span>
+                    <span className="chat-connection-meta">
+                      <FaClock />
+                      {isConnected
+                        ? formatElapsedTime(elapsedSeconds)
+                        : isMatching
+                          ? "Searching for someone new"
+                          : "Start or reconnect your chat"}
+                    </span>
+                    <span className="chat-connection-subtext">
+                      {isConnected ? connectionLabel : "Anonymous, random, and ready when you are."}
+                    </span>
+                  </div>
+                  <span className="chat-connection-arrow">{showChatDetails ? <FaChevronUp /> : <FaChevronDown />}</span>
+                </button>
+
+                {showChatDetails && (
+                  <div className="chat-tag-row chat-fixed-strip">
+                    {CHAT_TAGS.map(({ icon: Icon, label, tone }) => (
+                      <span key={label} className={`chat-tag chat-tag-${tone}`}>
+                        <Icon />
+                        <span>{label}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="chat-conversation-panel">
+                  <div ref={messagesAreaRef} className="fullscreen-messages-area chat-messages-area">
+                    <div className="fullscreen-messages-container chat-messages-container">
+                      {!ws && (
+                        <div className="fullscreen-login-container">
+                          <div className="fullscreen-login-content chat-login-card">
+                            <img src={chatLogo} alt="PerfectChat logo" className="fullscreen-login-logo" />
+                            <p className="eyebrow">Random Text Chat</p>
+                            <h2 className="fullscreen-login-title">Start chatting instantly</h2>
+                            <p className="fullscreen-login-copy">
+                              Enter a nickname, get matched quickly, and jump into a clean, distraction-free
+                              conversation.
+                            </p>
+                            <div className="fullscreen-login-form">
+                              <input
+                                type="text"
+                                placeholder="Enter your nickname"
+                                value={username}
+                                onChange={(event) => setUsername(event.target.value)}
+                                className="fullscreen-username-input"
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    startTextChat()
+                                  }
+                                }}
+                              />
+
+                              <button
+                                onClick={startTextChat}
+                                disabled={!username.trim()}
+                                className={`fullscreen-start-button ${!username.trim() ? "disabled" : ""}`}
+                                type="button"
+                              >
+                                Start Anonymous Chat
+                              </button>
+
+                              {connectionError && <div className="error-message">{connectionError}</div>}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {ws && messages.length === 0 && isConnected && (
+                        <div className="fullscreen-empty-state chat-empty-state">
+                          <div className="fullscreen-empty-icon">
+                            <FaComments />
+                          </div>
+                          <h3 className="fullscreen-empty-title">Connected!</h3>
+                          <p className="fullscreen-empty-subtitle">
+                            Start your anonymous conversation with {partnerName}.
+                          </p>
+                        </div>
+                      )}
+
+                      {ws && messages.length === 0 && !isConnected && isMatching && (
+                        <div className="fullscreen-empty-state chat-empty-state">
+                          <div className="fullscreen-empty-icon">
+                            <FaComments />
+                          </div>
+                          <h3 className="fullscreen-empty-title">Finding Partner...</h3>
+                          <p className="fullscreen-empty-subtitle">Please wait while we match you with someone new.</p>
+                          <button onClick={requestPartner} className="find-partner-button" disabled={!ws} type="button">
+                            Retry Match
+                          </button>
+                        </div>
+                      )}
+
+                      {messages.map((message, index) => {
+                        const isOutgoing = message.sender === "You"
+                        const isSystem = message.sender === "System"
+                        const authorLabel = isOutgoing ? "You" : partnerName || "Stranger"
+
+                        return (
+                          <div
+                            key={`${message.sender}-${index}`}
+                            className={`fullscreen-message-wrapper chat-message-wrapper ${
+                              isOutgoing ? "is-outgoing" : isSystem ? "is-system" : "is-incoming"
+                            }`}
+                          >
+                            {!isOutgoing && !isSystem && (
+                              <div className="fullscreen-avatar fullscreen-avatar-stranger">S</div>
+                            )}
+
+                            <div className="chat-message-stack">
+                              {!isSystem && <span className="chat-message-author">{authorLabel}</span>}
+                              <div
+                                className={`message ${
+                                  isOutgoing
+                                    ? "outgoing fullscreen-message-you"
+                                    : isSystem
+                                      ? "system fullscreen-message-system"
+                                      : "incoming fullscreen-message-stranger"
+                                }`}
+                              >
+                                <p>{message.content}</p>
+                                {message.createdAt && (
+                                  <div className="chat-message-meta">
+                                    <span>{formatMessageTime(message.createdAt)}</span>
+                                    {isOutgoing && <span className="chat-double-check">✓✓</span>}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+
+                      {isTyping && isConnected && (
+                        <div className="fullscreen-typing-wrapper chat-message-wrapper is-incoming">
+                          <div className="fullscreen-avatar fullscreen-avatar-stranger">S</div>
+                          <div className="chat-message-stack">
+                            <span className="chat-message-author">{partnerName || "Stranger"}</span>
+                            <div className="typing-indicator fullscreen-typing-indicator keyboard-typing">
+                              <div className="keyboard-typing-keys">
+                                <span className="keyboard-key"></span>
+                                <span className="keyboard-key"></span>
+                                <span className="keyboard-key"></span>
+                                <span className="keyboard-key wide"></span>
+                              </div>
+                              <span className="keyboard-typing-text">typing...</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <div ref={messagesEndRef}></div>
+                    </div>
+                  </div>
+
+                  {ws && (
+                    <div className="fullscreen-message-input-area chat-composer-shell">
+                      <div className="fullscreen-message-input-container">
+                        <form className="message-form fullscreen-message-form chat-composer-form" onSubmit={handleSubmit}>
+                          <button className="chat-tool-button" type="button" title="Emoji picker coming soon">
+                            <FaSmile />
+                          </button>
+                          <button className="chat-tool-button" type="button" title="Attachment support coming soon">
+                            <FaPaperclip />
+                          </button>
+                          <input
+                            ref={messageInputRef}
+                            type="text"
+                            value={draftMessage}
+                            onChange={handleDraftChange}
+                            onFocus={handleComposerFocus}
+                            placeholder={isConnected ? "Type a message..." : "Waiting for connection..."}
+                            disabled={!isConnected}
+                            className="message-input fullscreen-message-input chat-composer-input"
+                          />
+                          <button
+                            type="submit"
+                            className="send-button fullscreen-send-button chat-send-button"
+                            disabled={!isConnected || !draftMessage.trim()}
+                          >
+                            <FaPaperPlane />
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <aside className="chat-sidebar">
+                <article className="chat-side-card">
+                  <div className="chat-side-icon pink">
+                    <FaHeart />
+                  </div>
+                  <h3>Stay kind & respectful</h3>
+                  <p>
+                    We&apos;re all here to have meaningful conversations. Please be kind and respectful to each other.
+                  </p>
+                  <div className="chat-side-points">
+                    {SAFETY_POINTS.map((point) => (
+                      <span key={point}>{point}</span>
+                    ))}
+                    <span className="warning">Report inappropriate behavior</span>
+                  </div>
+                  <button className="chat-side-secondary-button" type="button">
+                    Learn more
+                  </button>
+                </article>
+
+                <article className="chat-side-card">
+                  <div className="chat-side-icon violet">
+                    <FaRandom />
+                  </div>
+                  <h3>Looking for a new chat?</h3>
+                  <p>Click below to instantly connect with someone new.</p>
+                  <button className="chat-side-primary-button" onClick={handleSkip} disabled={!ws} type="button">
+                    <FaRandom />
+                    <span>Next Match</span>
+                  </button>
+                  <div className="chat-side-note">
+                    <FaShieldAlt />
+                    <span>Connections are random and completely anonymous.</span>
+                  </div>
+                </article>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (view === "blog" && activeBlog) {
+    return (
+      <div className={`app-container ${darkMode ? "dark" : "light"}`}>
+        <header className="app-header">
+          <div className="logo-container">
+            <img src={chatLogo} alt="PerfectChat logo" className="app-logo" />
+            <div className="brand-copy">
+              <h1 className="app-title">PerfectChat</h1>
+              <p className="brand-subtitle">Anonymous random conversations, designed to feel easy.</p>
+            </div>
+          </div>
+
+          <div className="header-actions">
+            <button className="blog-back-button" onClick={goToBlogList} type="button">
+              <FaArrowLeft />
+              <span>Back to Home</span>
+            </button>
+            <button className="theme-toggle" onClick={toggleDarkMode} type="button">
+              {darkMode ? <FaSun /> : <FaMoon />}
+            </button>
+          </div>
+        </header>
+
+        <main className="app-main blog-article-page">
+          <article className="blog-article-shell">
+            <div className="blog-article-topbar">
+              <span className="eyebrow">PerfectChat Journal</span>
+              <span className="blog-category">{activeBlog.category}</span>
+            </div>
+            <p className="blog-readtime">{activeBlog.readTime}</p>
+            <h2 className="blog-article-title">{activeBlog.title}</h2>
+            <p className="blog-article-excerpt">{activeBlog.excerpt}</p>
+            <div className="blog-article-body">
+              {activeBlog.body.map((paragraph, index) => (
+                <p key={index}>{paragraph}</p>
+              ))}
+            </div>
+            <div className="blog-article-actions">
+              <button className="blog-read-more" onClick={goToBlogList} type="button">
+                Read More Articles
+              </button>
+            </div>
+          </article>
+        </main>
+      </div>
+    )
   }
 
   return (
     <div className={`app-container ${darkMode ? "dark" : "light"}`}>
-      {/* Blog Page */}
-      {showBlogPage && <BlogPage blogId={currentBlogId} />}
-
-      {/* Video Chat */}
-      {showVideoChat && (
-        <div className="video-chat-wrapper">
-          <VideoChat initialUsername={username} onBack={goToHome} />
+      <header className="app-header">
+        <div className="logo-container">
+          <img src={chatLogo} alt="PerfectChat logo" className="app-logo" />
+          <div className="brand-copy">
+            <h1 className="app-title">PerfectChat</h1>
+            <p className="brand-subtitle">Anonymous random conversations, designed to feel easy.</p>
+          </div>
         </div>
-      )}
 
-      {/* Full Screen Chat Interface */}
-      {showTextChat ? (
-        <>
-          {/* Full Screen Top Bar */}
-          <div className="fullscreen-chat-header">
-            <div className="fullscreen-header-left">
-              <button className="fullscreen-home-button" onClick={goToHome} title="Go to Home">
-                <FaHome />
-              </button>
-              <div className="fullscreen-status">
-                <div className={`status-indicator ${partnerName ? "connected" : "searching"}`}></div>
-                <span className="fullscreen-status-text">
-                  {partnerName ? `Connected to ${partnerName}` : isMatching ? "Finding partner..." : "Disconnected"}
+        <div className="header-actions">
+          <button className="theme-toggle" onClick={toggleDarkMode} type="button">
+            {darkMode ? <FaSun /> : <FaMoon />}
+          </button>
+        </div>
+      </header>
+
+      <main className="app-main">
+        <section className="hero-panel">
+          <div className="hero-copy-panel home-story-card">
+            <span className="eyebrow">PerfectChat</span>
+            <h2 className="hero-title">Start real conversations with strangers in seconds.</h2>
+            <p className="hero-description">
+              PerfectChat connects you anonymously with new people for meaningful conversations. No sign-ups. No
+              pressure. Just real chats, whenever you want.
+            </p>
+
+            <div className="hero-points">
+              {HOME_HIGHLIGHTS.map(({ icon: Icon, label }) => (
+                <span key={label}>
+                  <Icon />
+                  {label}
                 </span>
-              </div>
-            </div>
-
-            <div className="fullscreen-header-right">
-              <button className="fullscreen-action-button" onClick={handleSkip} title="Find someone new">
-                <FaRandom />
-              </button>
-              <button className="fullscreen-action-button" onClick={toggleDarkMode} title="Toggle theme">
-                {darkMode ? <FaSun /> : <FaMoon />}
-              </button>
-              <button className="fullscreen-action-button" title="Settings">
-                <FaCog />
-              </button>
-            </div>
-          </div>
-
-          {/* Full Screen Messages Area */}
-          <div className="fullscreen-messages-area">
-            <div className="fullscreen-messages-container">
-              {!ws && (
-                <div className="fullscreen-login-container">
-                  <div className="fullscreen-login-content">
-                    <img
-                      src="https://github.com/arjunbisht471/chat/blob/master/frontend/src/assets/chat.png?raw=true"
-                      alt="Logo"
-                      className="fullscreen-login-logo"
-                    />
-                    <h2 className="fullscreen-login-title">Start Text Chat</h2>
-                    <div className="fullscreen-login-form">
-                      <input
-                        type="text"
-                        placeholder="Enter your nickname"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        className="fullscreen-username-input"
-                        onKeyPress={(e) => {
-                          if (e.key === "Enter" && username.trim() && recaptchaVerified) {
-                            startChat()
-                          }
-                        }}
-                      />
-
-                      <div className="fullscreen-recaptcha-container">
-                        <ReCAPTCHA
-                          ref={recaptchaRef}
-                          sitekey="6LeV0QcrAAAAAHzIehPTpa-oMOZEYGTKvqxFnL-Y"
-                          onChange={handleRecaptchaChange}
-                        />
-                      </div>
-
-                      <button
-                        onClick={startChat}
-                        disabled={!username.trim() || !recaptchaVerified}
-                        className={`fullscreen-start-button ${!username.trim() || !recaptchaVerified ? "disabled" : ""}`}
-                      >
-                        Start Anonymous Chat
-                      </button>
-
-                      {connectionError && <div className="error-message">{connectionError}</div>}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {ws && messages.length === 0 && partnerName && (
-                <div className="fullscreen-empty-state">
-                  <div className="fullscreen-empty-icon">
-                    <FaComments />
-                  </div>
-                  <h3 className="fullscreen-empty-title">Connected!</h3>
-                  <p className="fullscreen-empty-subtitle">Start your anonymous conversation with {partnerName}</p>
-                </div>
-              )}
-
-              {ws && messages.length === 0 && !partnerName && isMatching && (
-                <div className="fullscreen-empty-state">
-                  <div className="fullscreen-empty-icon">
-                    <FaComments />
-                  </div>
-                  <h3 className="fullscreen-empty-title">Finding Partner...</h3>
-                  <p className="fullscreen-empty-subtitle">Please wait while we connect you with someone</p>
-                  <button onClick={findPartner} className="find-partner-button">
-                    Find Partner
-                  </button>
-                </div>
-              )}
-
-              {messages.map((msg, idx) => (
-                <div key={idx} className="fullscreen-message-wrapper">
-                  <div className="fullscreen-message-row">
-                    {msg.sender !== "You" && msg.sender !== "System" && (
-                      <div className="fullscreen-avatar fullscreen-avatar-stranger">S</div>
-                    )}
-                    <div
-                      className={`message ${
-                        msg.sender === "You"
-                          ? "outgoing fullscreen-message-you"
-                          : msg.sender === "System"
-                            ? "system fullscreen-message-system"
-                            : "incoming fullscreen-message-stranger"
-                      }`}
-                    >
-                      {msg.type === "image" ? (
-                        <img src={msg.content || "/placeholder.svg"} alt="sent" className="message-image" />
-                      ) : (
-                        <p>{msg.content}</p>
-                      )}
-                    </div>
-                    {msg.sender === "You" && <div className="fullscreen-avatar fullscreen-avatar-you">Y</div>}
-                  </div>
-                </div>
               ))}
-
-              {isTyping && (
-                <div className="fullscreen-typing-wrapper">
-                  <div className="fullscreen-typing-row">
-                    <div className="fullscreen-avatar fullscreen-avatar-stranger">S</div>
-                    <div className="typing-indicator fullscreen-typing-indicator">
-                      <div className="typing-dot"></div>
-                      <div className="typing-dot"></div>
-                      <div className="typing-dot"></div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div ref={messagesEndRef}></div>
             </div>
           </div>
 
-          {/* Full Screen Message Input */}
-          {ws && (
-            <div className="fullscreen-message-input-area">
-              <div className="fullscreen-message-input-container">
-                <form className="message-form fullscreen-message-form" onSubmit={handleSubmit}>
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    name="message"
-                    placeholder={partnerName ? "Type your message..." : "Waiting for connection..."}
-                    disabled={!partnerName}
-                    className="message-input fullscreen-message-input"
-                    onKeyDown={handleTyping}
-                  />
-                  <button type="submit" className="send-button fullscreen-send-button" disabled={!partnerName}>
-                    <FaPaperPlane />
-                  </button>
-                </form>
-              </div>
-            </div>
-          )}
-        </>
-      ) : (
-        /* Welcome Screen */
-        <>
-          <header className="app-header">
-            <div className="logo-container">
-              <img
-                src="https://github.com/arjunbisht471/chat/blob/master/frontend/src/assets/chat.png?raw=true"
-                alt="Logo"
-                className="app-logo"
-                onClick={goToHome}
-                style={{ cursor: "pointer" }}
-              />
-              <h1 className="app-title">PerfectChat</h1>
-            </div>
+          <div className="hero-action-card home-mode-panel">
+            <img src={chatLogo} alt="PerfectChat logo" className="welcome-logo" />
+            <h3 className="hero-card-title">Choose how you want to chat</h3>
+            <p className="hero-card-copy">
+              Pick your preferred chat mode. You can switch anytime during the conversation.
+            </p>
 
-            <div className={`header-actions ${mobileMenuOpen ? "show" : ""}`}>
-              {!ws && !showVideoChat && !showBlogPage && (
-                <>
-                  <button
-                    className="nav-button text-button"
-                    onClick={() => {
-                      setShowTextChat(true)
-                      setShowVideoChat(false)
-                      setShowBlogPage(false)
-                      setMobileMenuOpen(false)
-                    }}
-                  >
-                    <FaComments />
-                    <span>Text Chat</span>
-                  </button>
-                  <button
-                    className="nav-button video-button"
-                    onClick={() => {
-                      setShowVideoChat(true)
-                      setShowTextChat(false)
-                      setShowBlogPage(false)
-                      setMobileMenuOpen(false)
-                    }}
-                  >
-                    <FaVideo />
-                    <span>Video Chat</span>
-                  </button>
-                </>
-              )}
-              <button className="theme-toggle" onClick={toggleDarkMode}>
-                {darkMode ? <FaSun /> : <FaMoon />}
+            <div className="mode-selector">
+              <button
+                className={`mode-option ${selectedMode === "text" ? "active" : ""}`}
+                onClick={() => {
+                  setSelectedMode("text")
+                  setConnectionError("")
+                }}
+                type="button"
+              >
+                <span className="mode-option-check"></span>
+                <div className="mode-option-icon pink">
+                  <FaComments />
+                </div>
+                <h4>Text Chat</h4>
+                <p>Chat with strangers using text.</p>
               </button>
-              <button className="mobile-menu-toggle" onClick={toggleMobileMenu}>
-                {mobileMenuOpen ? <FaTimes /> : <FaBars />}
+
+              <button
+                className={`mode-option ${selectedMode === "video" ? "active" : ""}`}
+                onClick={() => {
+                  setSelectedMode("video")
+                  setConnectionError("")
+                }}
+                type="button"
+              >
+                <span className="mode-option-check"></span>
+                <div className="mode-option-icon violet">
+                  <FaVideo />
+                </div>
+                <h4>Video Chat</h4>
+                <p>Face-to-face conversations in real time.</p>
               </button>
             </div>
-          </header>
 
-          <main className="app-main">
-            <div className="welcome-container">
-              <div className="welcome-content">
-                <img
-                  src="https://github.com/arjunbisht471/chat/blob/master/frontend/src/assets/chat.png?raw=true"
-                  alt="Logo"
-                  className="welcome-logo"
+            {selectedMode && (
+              <div className="mode-name-panel">
+                <label className="mode-name-label" htmlFor="nickname-input">
+                  Enter your nickname to start {selectedMode === "video" ? "video" : "text"} chat
+                </label>
+                <input
+                  id="nickname-input"
+                  className="welcome-name-input"
+                  type="text"
+                  value={username}
+                  onChange={(event) => {
+                    setUsername(event.target.value)
+                    setConnectionError("")
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      handleStartChat()
+                    }
+                  }}
+                  placeholder="Choose your nickname"
                 />
-                <h1 className="welcome-title">Welcome to PerfectChat</h1>
-                <p className="welcome-subtitle">Connect with strangers anonymously</p>
-                <div className="welcome-buttons">
-                  <button onClick={() => setShowTextChat(true)} className="welcome-button text-button">
-                    <FaComments />
-                    <span>Text Chat</span>
-                  </button>
-                  <button onClick={() => setShowVideoChat(true)} className="welcome-button video-button">
-                    <FaVideo />
-                    <span>Video Chat</span>
-                  </button>
-                </div>
               </div>
+            )}
 
-              <div className="blog-section">
-                <h2 className="blog-title">Latest Blogs</h2>
-                <div className="blog-grid">
-                  {blogs.map((blog, index) => (
-                    <div key={index} className="blog-card">
-                      <h3 className="blog-card-title">{blog.title}</h3>
-                      <p className="blog-card-content">{blog.content}</p>
-                      <button className="blog-read-more" onClick={() => navigateToBlog(blog.id)}>
-                        Read More
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
+            <p className="mode-helper-copy">
+              {selectedMode
+                ? "Your nickname stays visible only inside the current chat session."
+                : "Select a mode first, then your nickname field will appear here."}
+            </p>
+
+            <button
+              onClick={handleStartChat}
+              className="welcome-button start-chat-button"
+              type="button"
+              disabled={!selectedMode || !username.trim()}
+            >
+              <FaRocket />
+              <span>Start Chat</span>
+            </button>
+            {connectionError && <div className="error-banner home-error">{connectionError}</div>}
+          </div>
+        </section>
+
+        <section className="blog-showcase journal-showcase">
+          <div className="blog-showcase-head">
+            <div>
+              <span className="eyebrow">PerfectChat Journal</span>
+              <h2 className="blog-showcase-title">Short reads for better anonymous conversations</h2>
             </div>
-          </main>
-        </>
-      )}
+            <p className="blog-showcase-copy">
+              These articles cover conversation confidence, safety, fast matching, and the small details that make
+              PerfectChat feel better to use.
+            </p>
+          </div>
+
+          <div className="blog-grid">
+            {BLOGS.map((blog) => (
+              <article key={blog.id} className="blog-card">
+                <div className="blog-meta-row">
+                  <span className="blog-category">{blog.category}</span>
+                  <span className="blog-readtime">{blog.readTime}</span>
+                </div>
+                <h3 className="blog-card-title">{blog.title}</h3>
+                <p className="blog-card-content">{blog.excerpt}</p>
+                <button className="blog-read-more journal-read-more" onClick={() => openBlog(blog.id)} type="button">
+                  <span>Read Article</span>
+                  <span aria-hidden="true">{"->"}</span>
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="trust-strip" aria-label="PerfectChat highlights">
+          {TRUST_FEATURES.map(({ icon: Icon, title, description }) => (
+            <article key={title} className="trust-item">
+              <div className="trust-item-icon">
+                <Icon />
+              </div>
+              <div>
+                <h3>{title}</h3>
+                <p>{description}</p>
+              </div>
+            </article>
+          ))}
+        </section>
+      </main>
     </div>
   )
 }

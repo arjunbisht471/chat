@@ -1,11 +1,93 @@
 const WebSocket = require("ws")
+const http = require("http")
 const https = require("https")
 const fs = require("fs")
+const path = require("path")
 
-const server = https.createServer({
-  key: fs.readFileSync("/etc/letsencrypt/live/perfactchat.com/privkey.pem"),
-  cert: fs.readFileSync("/etc/letsencrypt/live/perfactchat.com/fullchain.pem"),
-})
+function createRequestHandler() {
+  const frontendDistDir = path.resolve(__dirname, "../frontend/dist")
+  const fallbackIndex = path.join(frontendDistDir, "index.html")
+
+  return (req, res) => {
+    const requestPath = (req.url || "/").split("?")[0]
+
+    if (requestPath === "/health") {
+      res.writeHead(200, { "Content-Type": "application/json" })
+      res.end(
+        JSON.stringify({
+          ok: true,
+          service: "chat-backend",
+        }),
+      )
+      return
+    }
+
+    if (fs.existsSync(frontendDistDir) && fs.existsSync(fallbackIndex)) {
+      const cleanedPath = requestPath === "/" ? "index.html" : requestPath.replace(/^\/+/, "")
+      const candidatePath = path.resolve(frontendDistDir, cleanedPath)
+
+      if (candidatePath.startsWith(frontendDistDir) && fs.existsSync(candidatePath) && fs.statSync(candidatePath).isFile()) {
+        const extension = path.extname(candidatePath)
+        const contentTypes = {
+          ".css": "text/css; charset=utf-8",
+          ".html": "text/html; charset=utf-8",
+          ".js": "text/javascript; charset=utf-8",
+          ".json": "application/json; charset=utf-8",
+          ".png": "image/png",
+          ".svg": "image/svg+xml",
+        }
+
+        res.writeHead(200, { "Content-Type": contentTypes[extension] || "application/octet-stream" })
+        fs.createReadStream(candidatePath).pipe(res)
+        return
+      }
+
+      if (!path.extname(requestPath)) {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
+        fs.createReadStream(fallbackIndex).pipe(res)
+        return
+      }
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json" })
+    res.end(
+      JSON.stringify({
+        ok: true,
+        service: "chat-backend",
+      }),
+    )
+  }
+}
+
+function createBaseServer() {
+  const keyPath = process.env.SSL_KEY_PATH
+  const certPath = process.env.SSL_CERT_PATH
+  const requestHandler = createRequestHandler()
+
+  if (keyPath && certPath) {
+    try {
+      return {
+        secure: true,
+        server: https.createServer(
+          {
+            key: fs.readFileSync(keyPath),
+            cert: fs.readFileSync(certPath),
+          },
+          requestHandler,
+        ),
+      }
+    } catch (error) {
+      console.warn("Failed to load SSL certificates, falling back to HTTP:", error.message)
+    }
+  }
+
+  return {
+    secure: false,
+    server: http.createServer(requestHandler),
+  }
+}
+
+const { secure, server } = createBaseServer()
 
 const wss = new WebSocket.Server({
   server,
@@ -21,6 +103,53 @@ const textWaitingUsers = []
 
 // Connection health tracking
 const connectionHealth = new Map()
+const pendingRematchTimers = new Map()
+
+function getUsersList(chatType) {
+  return chatType === "video" ? videoUsers : textUsers
+}
+
+function getWaitingList(chatType) {
+  return chatType === "video" ? videoWaitingUsers : textWaitingUsers
+}
+
+function getUserBySocket(ws, chatType) {
+  const usersList = getUsersList(chatType)
+  return Array.from(usersList.values()).find((user) => user.ws === ws) || null
+}
+
+function cancelPendingRematch(ws) {
+  const timer = pendingRematchTimers.get(ws)
+  if (timer) {
+    clearTimeout(timer)
+    pendingRematchTimers.delete(ws)
+  }
+}
+
+function scheduleRematch(ws, chatType, delay = 500) {
+  if (!ws || !chatType) {
+    return
+  }
+
+  cancelPendingRematch(ws)
+
+  const timer = setTimeout(() => {
+    pendingRematchTimers.delete(ws)
+
+    if (ws.readyState !== WebSocket.OPEN) {
+      return
+    }
+
+    const user = getUserBySocket(ws, chatType)
+    if (!user || user.partner) {
+      return
+    }
+
+    findPartner(ws, chatType)
+  }, delay)
+
+  pendingRematchTimers.set(ws, timer)
+}
 
 function sendToClient(client, message) {
   try {
@@ -71,7 +200,7 @@ function handleError(client, errorMessage) {
 }
 
 function removeUserFromWaiting(ws, chatType) {
-  const waitingList = chatType === "video" ? videoWaitingUsers : textWaitingUsers
+  const waitingList = getWaitingList(chatType)
   const index = waitingList.findIndex((user) => user.ws === ws)
   if (index !== -1) {
     waitingList.splice(index, 1)
@@ -79,11 +208,19 @@ function removeUserFromWaiting(ws, chatType) {
   }
 }
 
-function findPartner(client, chatType, isRetry = false) {
-  const usersList = chatType === "video" ? videoUsers : textUsers
-  const waitingList = chatType === "video" ? videoWaitingUsers : textWaitingUsers
+function createMatchId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
 
-  const user = Array.from(usersList.values()).find((u) => u.ws === client)
+function findPartner(client, chatType, isRetry = false) {
+  if (!client || client.readyState !== WebSocket.OPEN) {
+    return
+  }
+
+  cancelPendingRematch(client)
+
+  const waitingList = getWaitingList(chatType)
+  const user = getUserBySocket(client, chatType)
   if (!user) {
     console.log("❌ User not found in users list")
     return
@@ -103,19 +240,26 @@ function findPartner(client, chatType, isRetry = false) {
   // Find available partner from waiting users - improved filtering
   const availablePartners = waitingList.filter(
     (u) =>
-      u.ws !== client && !u.partner && u.ws.readyState === WebSocket.OPEN && !connectionHealth.get(u.ws)?.failures > 2, // Avoid unhealthy connections
+      u.ws !== client &&
+      !u.partner &&
+      u.ws.readyState === WebSocket.OPEN &&
+      (connectionHealth.get(u.ws)?.failures ?? 0) <= 2, // Avoid unhealthy connections
   )
 
   if (availablePartners.length > 0) {
     const partner = availablePartners[0] // Take first available partner
+    const matchId = createMatchId()
 
     console.log(`🤝 Matching ${chatType} ${user.username} with ${partner.username}`)
+    cancelPendingRematch(partner.ws)
 
     // Set partners
     user.partner = partner.ws
     partner.partner = user.ws
     user.partnerId = partner.username
     partner.partnerId = user.username
+    user.matchId = matchId
+    partner.matchId = matchId
 
     // Remove partner from waiting list
     removeUserFromWaiting(partner.ws, chatType)
@@ -124,13 +268,15 @@ function findPartner(client, chatType, isRetry = false) {
     const userSuccess = sendToClient(client, {
       type: "matched",
       partnerName: partner.username,
-      matchId: Date.now(), // Add match ID for tracking
+      matchId,
+      initiator: true,
     })
 
     const partnerSuccess = sendToClient(partner.ws, {
       type: "matched",
       partnerName: user.username,
-      matchId: Date.now(),
+      matchId,
+      initiator: false,
     })
 
     if (!userSuccess || !partnerSuccess) {
@@ -141,6 +287,8 @@ function findPartner(client, chatType, isRetry = false) {
       partner.partner = null
       user.partnerId = null
       partner.partnerId = null
+      user.matchId = null
+      partner.matchId = null
 
       // Add back to waiting list with delay
       setTimeout(() => {
@@ -152,17 +300,13 @@ function findPartner(client, chatType, isRetry = false) {
         }
 
         // Retry matching after a short delay
-        setTimeout(() => {
-          if (client.readyState === WebSocket.OPEN) {
-            findPartner(client, chatType, true)
-          }
-        }, 1000)
+        scheduleRematch(client, chatType, 1000)
       }, 500)
     } else {
       // Successful match - send additional connection setup info
       setTimeout(() => {
-        sendToClient(client, { type: "connectionReady", partnerId: partner.username })
-        sendToClient(partner.ws, { type: "connectionReady", partnerId: user.username })
+        sendToClient(client, { type: "connectionReady", partnerId: partner.username, matchId })
+        sendToClient(partner.ws, { type: "connectionReady", partnerId: user.username, matchId })
       }, 200)
     }
   } else {
@@ -181,18 +325,19 @@ function findPartner(client, chatType, isRetry = false) {
 }
 
 function disconnectPartnership(ws, chatType, reason = "disconnect") {
-  const usersList = chatType === "video" ? videoUsers : textUsers
-  const user = Array.from(usersList.values()).find((u) => u.ws === ws)
+  const usersList = getUsersList(chatType)
+  const user = getUserBySocket(ws, chatType)
 
   if (user && user.partner) {
     console.log(`💔 Disconnecting ${chatType} partnership for ${user.username}, reason: ${reason}`)
+    const partnerSocket = user.partner
 
     // Find partner user object
-    const partnerUser = Array.from(usersList.values()).find((u) => u.ws === user.partner)
+    const partnerUser = Array.from(usersList.values()).find((u) => u.ws === partnerSocket)
 
     if (partnerUser) {
       // Notify partner with specific reason
-      sendToClient(user.partner, {
+      sendToClient(partnerSocket, {
         type: "partnerDisconnected",
         reason: reason,
         shouldFindNew: reason === "skip", // Auto-find new partner if skipped
@@ -201,15 +346,12 @@ function disconnectPartnership(ws, chatType, reason = "disconnect") {
       // Reset partner's partnership
       partnerUser.partner = null
       partnerUser.partnerId = null
+      partnerUser.matchId = null
 
       // If partner was skipped, automatically find them a new partner
-      if (reason === "skip" && user.partner.readyState === WebSocket.OPEN) {
+      if (reason === "skip" && partnerSocket.readyState === WebSocket.OPEN) {
         console.log(`🔄 Auto-finding new partner for ${partnerUser.username} after skip`)
-        setTimeout(() => {
-          if (user.partner.readyState === WebSocket.OPEN) {
-            findPartner(user.partner, chatType)
-          }
-        }, 1000)
+        scheduleRematch(partnerSocket, chatType, 1000)
       }
 
       console.log(`Reset partner for ${partnerUser.username}`)
@@ -218,11 +360,13 @@ function disconnectPartnership(ws, chatType, reason = "disconnect") {
     // Reset user's partnership
     user.partner = null
     user.partnerId = null
+    user.matchId = null
   }
 }
 
 function cleanupConnection(ws) {
   console.log("🧹 Cleaning up connection")
+  cancelPendingRematch(ws)
 
   // Remove from both user lists
   for (const [key, user] of videoUsers.entries()) {
@@ -285,7 +429,7 @@ wss.on("connection", (ws) => {
           }
 
           ws.chatType = chatType
-          const usersList = chatType === "video" ? videoUsers : textUsers
+          const usersList = getUsersList(chatType)
 
           // Check if this WebSocket already has a user
           const existingUser = Array.from(usersList.values()).find((u) => u.ws === ws)
@@ -308,6 +452,7 @@ wss.on("connection", (ws) => {
             username: finalUsername,
             partner: null,
             partnerId: null,
+            matchId: null,
             chatType,
             connectionId: ws.connectionId,
             joinedAt: Date.now(),
@@ -321,13 +466,6 @@ wss.on("connection", (ws) => {
             username: finalUsername,
             userId: ws.connectionId,
           })
-
-          // Automatically find a partner after username is set with longer delay for stability
-          setTimeout(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-              findPartner(ws, chatType)
-            }
-          }, 800) // Increased delay for better stability
           break
 
         case "findPartner":
@@ -335,7 +473,7 @@ wss.on("connection", (ws) => {
             handleError(ws, "Chat type not set")
             return
           }
-          findPartner(ws, ws.chatType)
+          scheduleRematch(ws, ws.chatType, 0)
           break
 
         case "skip":
@@ -347,16 +485,13 @@ wss.on("connection", (ws) => {
 
           if (skippingUser) {
             console.log(`⏭️ User ${skippingUser.username} is skipping partner`)
+            cancelPendingRematch(ws)
 
             // Disconnect partnership with skip reason
             disconnectPartnership(ws, ws.chatType, "skip")
 
             // Find new partner for the skipping user immediately
-            setTimeout(() => {
-              if (ws.readyState === WebSocket.OPEN) {
-                findPartner(ws, ws.chatType)
-              }
-            }, 500)
+            scheduleRematch(ws, ws.chatType, 500)
           }
           break
 
@@ -372,6 +507,7 @@ wss.on("connection", (ws) => {
               offer: data.offer,
               from: offerUser.username,
               offerId: data.offerId || Date.now(),
+              matchId: offerUser.matchId || null,
             })
 
             if (!success) {
@@ -395,6 +531,7 @@ wss.on("connection", (ws) => {
               answer: data.answer,
               from: answerUser.username,
               answerId: data.answerId || Date.now(),
+              matchId: answerUser.matchId || null,
             })
 
             if (!success) {
@@ -415,6 +552,7 @@ wss.on("connection", (ws) => {
               candidate: data.candidate,
               from: candidateUser.username,
               candidateId: data.candidateId || Date.now(),
+              matchId: candidateUser.matchId || null,
             })
 
             if (!success) {
