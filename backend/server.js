@@ -8,6 +8,8 @@ function createRequestHandler() {
   const frontendDistDir = path.resolve(__dirname, "frontend/dist")
   const fallbackIndex = path.join(frontendDistDir, "index.html")
 
+  
+
   return (req, res) => {
     const requestPath = (req.url || "/").split("?")[0]
 

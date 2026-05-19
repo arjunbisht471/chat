@@ -5,7 +5,8 @@
   "scripts": {
     "postinstall": "npm --prefix frontend install",
     "build": "npm --prefix frontend run build",
-    "start": "node server.js"
+    "start": "npm run build && node server.js",
+    "serve": "node server.js"
   },
   "keywords": [],
   "author": "",
