@@ -5,7 +5,7 @@ const fs = require("fs")
 const path = require("path")
 
 function createRequestHandler() {
-  const frontendDistDir = path.resolve(__dirname, "../frontend/dist")
+  const frontendDistDir = path.resolve(__dirname, "frontend/dist")
   const fallbackIndex = path.join(frontendDistDir, "index.html")
 
   return (req, res) => {
@@ -31,10 +31,15 @@ function createRequestHandler() {
         const contentTypes = {
           ".css": "text/css; charset=utf-8",
           ".html": "text/html; charset=utf-8",
+          ".ico": "image/x-icon",
+          ".jpeg": "image/jpeg",
           ".js": "text/javascript; charset=utf-8",
+          ".jpg": "image/jpeg",
           ".json": "application/json; charset=utf-8",
           ".png": "image/png",
           ".svg": "image/svg+xml",
+          ".txt": "text/plain; charset=utf-8",
+          ".webp": "image/webp",
         }
 
         res.writeHead(200, { "Content-Type": contentTypes[extension] || "application/octet-stream" })
@@ -47,13 +52,24 @@ function createRequestHandler() {
         fs.createReadStream(fallbackIndex).pipe(res)
         return
       }
+
+      res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" })
+      res.end(
+        JSON.stringify({
+          ok: false,
+          error: "Not found",
+          path: requestPath,
+        }),
+      )
+      return
     }
 
-    res.writeHead(200, { "Content-Type": "application/json" })
+    res.writeHead(503, { "Content-Type": "application/json; charset=utf-8" })
     res.end(
       JSON.stringify({
-        ok: true,
-        service: "chat-backend",
+        ok: false,
+        error: "Frontend build not found",
+        expectedPath: frontendDistDir,
       }),
     )
   }

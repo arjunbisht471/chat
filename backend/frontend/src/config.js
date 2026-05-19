@@ -5,9 +5,19 @@ export function getWebSocketUrl() {
   }
 
   const protocol = import.meta.env.VITE_WS_PROTOCOL || (window.location.protocol === "https:" ? "wss" : "ws")
-  const host = import.meta.env.VITE_WS_HOST || window.location.hostname || "localhost"
-  const port = import.meta.env.VITE_WS_PORT || "5002"
+  const configuredHost = import.meta.env.VITE_WS_HOST
+  const configuredPort = import.meta.env.VITE_WS_PORT
 
+  if (configuredHost) {
+    return `${protocol}://${configuredHost}${configuredPort ? `:${configuredPort}` : ""}`
+  }
+
+  if (!import.meta.env.DEV && window.location.host) {
+    return `${protocol}://${window.location.host}`
+  }
+
+  const host = window.location.hostname || "localhost"
+  const port = configuredPort || "5002"
   return `${protocol}://${host}:${port}`
 }
 
