@@ -24,6 +24,8 @@ import {
 } from "react-icons/fa"
 import chatLogo from "./assets/chat.png"
 import { getWebSocketUrl } from "./config"
+import HomePage from "./Components/HomePage"
+import TextChat from "./Components/TextChat"
 import "./App.css"
 
 void React
@@ -157,7 +159,7 @@ function App() {
   const [view, setView] = useState("home")
   const [activeBlogId, setActiveBlogId] = useState(null)
   const [username, setUsername] = useState("")
-  const [selectedMode, setSelectedMode] = useState("")
+  const [selectedMode, setSelectedMode] = useState("text")
   const [draftMessage, setDraftMessage] = useState("")
   const [messages, setMessages] = useState([])
   const [partnerName, setPartnerName] = useState("")
@@ -313,8 +315,8 @@ function App() {
     }
   }
 
-  const startTextChat = () => {
-    const trimmedUsername = username.trim()
+  const startTextChat = (usernameOverride = username) => {
+    const trimmedUsername = usernameOverride.trim()
     if (!trimmedUsername) {
       setConnectionError("Please enter your nickname before starting.")
       return
@@ -396,6 +398,23 @@ function App() {
     }
 
     startTextChat()
+  }
+
+  const handleReferenceStart = (name, mode) => {
+    const cleanName = String(name || "").trim()
+    const cleanMode = mode === "video" ? "video" : "text"
+    if (!cleanName) return
+
+    setUsername(cleanName)
+    setSelectedMode(cleanMode)
+    setConnectionError("")
+
+    if (cleanMode === "video") {
+      setView("video")
+      return
+    }
+
+    startTextChat(cleanName)
   }
 
   const sendTypingSignal = () => {
@@ -560,6 +579,32 @@ function App() {
   }
 
   if (view === "text") {
+    return <TextChat
+      ws={ws}
+      username={username}
+      setUsername={setUsername}
+      partnerName={partnerName}
+      isConnected={isConnected}
+      isMatching={isMatching}
+      isTyping={isTyping}
+      connectionError={connectionError}
+      messages={messages}
+      draftMessage={draftMessage}
+      onDraftChange={handleDraftChange}
+      onSubmit={handleSubmit}
+      onSkip={handleSkip}
+      onEnd={goHome}
+      onStart={() => startTextChat()}
+      onRetry={requestPartner}
+      messageInputRef={messageInputRef}
+      messagesAreaRef={messagesAreaRef}
+      messagesEndRef={messagesEndRef}
+      onComposerFocus={handleComposerFocus}
+      formatTime={formatMessageTime}
+    />
+  }
+
+  if (view === "legacy-text") {
     return (
       <div className={`app-container chat-app ${darkMode ? "dark" : "light"}`}>
         <div
@@ -928,6 +973,11 @@ function App() {
     )
   }
 
+  if (view === "home") {
+    return <HomePage onReferenceStart={handleReferenceStart} />
+  }
+
+  /* Legacy home markup kept temporarily for an easy visual rollback. */
   return (
     <div className={`app-container ${darkMode ? "dark" : "light"}`}>
       <header className="app-header">

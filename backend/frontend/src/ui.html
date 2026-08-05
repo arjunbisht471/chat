@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>PerfectChat — Anonymous Random Chat with Real People</title>
+<meta name="description" content="PerfectChat connects you with random people around the world through anonymous text and video chat. No sign-up, no profiles, just real conversations." />
+<meta name="theme-color" content="#ffffff" />
+
+<!-- Google Fonts: Plus Jakarta Sans -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<!-- Tailwind CSS (CDN) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  /* ---------------------------------------------------------
+     TAILWIND CONFIGURATION
+     Colors are wired to CSS variables so the theme toggle can
+     swap the whole palette without duplicating dark: classes.
+  --------------------------------------------------------- */
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        colors: {
+          brandpink:   '#FF4FA3',
+          brandfuchsia:'#D946EF',
+          brandpurple: '#8B5CF6',
+          page:      'rgb(var(--c-page) / <alpha-value>)',
+          surface:   'rgb(var(--c-surface) / <alpha-value>)',
+          ink:       'rgb(var(--c-ink) / <alpha-value>)',
+          body:      'rgb(var(--c-body) / <alpha-value>)',
+          line:      'rgb(var(--c-line) / <alpha-value>)',
+          softpink:  'rgb(var(--c-softpink) / <alpha-value>)',
+          softpurple:'rgb(var(--c-softpurple) / <alpha-value>)'
+        },
+        fontFamily: {
+          sans: ['"Plus Jakarta Sans"', 'Manrope', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif']
+        },
+        borderRadius: { '4xl': '2rem', '5xl': '2.5rem' },
+        boxShadow: {
+          card: '0 2px 4px -2px rgba(36,19,52,.06), 0 12px 32px -12px rgba(36,19,52,.12)',
+          lift: '0 8px 20px -8px rgba(255,79,163,.28), 0 24px 48px -20px rgba(139,92,246,.28)',
+          glow: '0 10px 30px -8px rgba(255,79,163,.45)'
+        },
+        maxWidth: { shell: '1200px' }
+      }
+    }
+  };
+</script>
+
+<style>
+  /* ---------------------------------------------------------
+     DESIGN TOKENS
+  --------------------------------------------------------- */
+  :root{
+    --c-page: 255 255 255;
+    --c-surface: 255 255 255;
+    --c-ink: 36 19 52;          /* #241334 */
+    --c-body: 114 94 124;       /* #725E7C */
+    --c-line: 241 217 232;      /* #F1D9E8 */
+    --c-softpink: 255 240 247;  /* #FFF0F7 */
+    --c-softpurple: 243 237 255;/* #F3EDFF */
+    --glow-pink: rgba(255,79,163,.16);
+    --glow-purple: rgba(139,92,246,.16);
+    --grad: linear-gradient(135deg,#FF4FA3 0%,#D946EF 48%,#8B5CF6 100%);
+  }
+  .dark{
+    --c-page: 17 12 24;
+    --c-surface: 27 20 37;
+    --c-ink: 246 240 250;
+    --c-body: 176 163 190;
+    --c-line: 60 45 76;
+    --c-softpink: 51 27 46;
+    --c-softpurple: 42 32 64;
+    --glow-pink: rgba(255,79,163,.20);
+    --glow-purple: rgba(139,92,246,.22);
+  }
+
+  html, body { max-width: 100%; overflow-x: hidden; }
+  body{
+    background-color: rgb(var(--c-page));
+    color: rgb(var(--c-body));
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Ambient pink / lavender glow behind the page */
+  .page-glow{ position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+  .page-glow span{ position: absolute; border-radius: 9999px; filter: blur(90px); }
+  .glow-1{ width: 60vw; height: 60vw; max-width: 620px; max-height: 620px; top: -14vw; right: -12vw; background: var(--glow-pink); }
+  .glow-2{ width: 55vw; height: 55vw; max-width: 560px; max-height: 560px; top: 32vh; left: -18vw; background: var(--glow-purple); }
+  .glow-3{ width: 50vw; height: 50vw; max-width: 520px; max-height: 520px; bottom: -10vw; right: -8vw; background: var(--glow-purple); }
+
+  /* Utility helpers */
+  .grad{ background-image: var(--grad); }
+  .grad-text{ background-image: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .shell{ width: 100%; max-width: 1200px; margin-inline: auto; padding-inline: 1rem; }
+  @media (min-width: 768px){ .shell{ padding-inline: 2rem; } }
+
+  .card{
+    background-color: rgb(var(--c-surface));
+    border: 1px solid rgb(var(--c-line));
+    border-radius: 1.75rem;
+    box-shadow: 0 2px 4px -2px rgba(36,19,52,.05), 0 16px 40px -24px rgba(36,19,52,.25);
+  }
+  .glass{ background-color: rgb(var(--c-surface) / .72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+
+  /* Buttons keep a 48px minimum tap target */
+  /* Layout for .btn comes from Tailwind utilities on the element itself, so that
+     responsive display utilities such as `hidden lg:inline-flex` keep working. */
+  .btn{ min-height: 48px; border-radius: 9999px; font-weight: 600; transition: transform .18s ease, box-shadow .18s ease, background-color .18s ease; }
+  .btn:active{ transform: translateY(1px) scale(.99); }
+  .btn-grad{ background-image: var(--grad); color: #fff; box-shadow: 0 10px 24px -10px rgba(255,79,163,.65); }
+  .btn-grad:hover{ box-shadow: 0 14px 30px -10px rgba(255,79,163,.8); transform: translateY(-1px); }
+  .btn-purple{ background-color: #8B5CF6; color:#fff; box-shadow: 0 10px 24px -10px rgba(139,92,246,.6); }
+  .btn-purple:hover{ transform: translateY(-1px); }
+  .btn-ghost{ background-color: rgb(var(--c-surface)); color: rgb(var(--c-ink)); border: 1px solid rgb(var(--c-line)); }
+  .btn-ghost:hover{ border-color: #FF4FA3; }
+
+  /* Visible focus for keyboard users everywhere */
+  a:focus-visible, button:focus-visible, input:focus-visible, [tabindex]:focus-visible{
+    outline: 3px solid #FF4FA3; outline-offset: 2px; border-radius: 14px;
+  }
+
+  /* CSS-based avatar placeholders (no external images, no likeness rights) */
+  .avatar{
+    display:flex; align-items:center; justify-content:center;
+    border-radius:9999px; color:#fff; font-weight:700; letter-spacing:.02em;
+    background-image: var(--grad); background-size: 160% 160%;
+    box-shadow: inset 0 -6px 14px rgba(0,0,0,.12);
+    user-select:none;
+  }
+  .avatar-ring{ border: 3px solid rgb(var(--c-surface)); }
+
+  .chip{
+    display:inline-flex; align-items:center; gap:.4rem;
+    padding:.45rem .75rem; border-radius:9999px;
+    background-color: rgb(var(--c-surface));
+    border:1px solid rgb(var(--c-line));
+    font-size:.8125rem; font-weight:600; color: rgb(var(--c-ink));
+  }
+  .icon-tile{ width:2.5rem; height:2.5rem; border-radius:.9rem; display:flex; align-items:center; justify-content:center; flex: none; }
+  .tile-pink{ background-color: rgb(var(--c-softpink)); color:#FF4FA3; }
+  .tile-purple{ background-color: rgb(var(--c-softpurple)); color:#8B5CF6; }
+
+  .eyebrow{ font-size:.75rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:#FF4FA3; }
+  .h2{ font-size: clamp(1.5rem, 5.5vw, 2.25rem); line-height:1.15; font-weight:800; color: rgb(var(--c-ink)); letter-spacing:-.02em; }
+
+  /* Horizontal scrollers used on mobile */
+  .scroller{ display:flex; gap:1rem; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:.25rem; }
+  .scroller::-webkit-scrollbar{ display:none; }
+  .scroller > *{ scroll-snap-align:center; flex:0 0 86%; }
+
+  @media (min-width: 768px){
+    .scroller.desk-grid{ display:grid; overflow:visible; scroll-snap-type:none; gap:1.25rem; }
+  }
+
+  /* Typing indicator dots */
+  .typing i{ width:6px; height:6px; border-radius:9999px; background:#B9A6C6; display:inline-block; animation: blink 1.2s infinite ease-in-out; }
+  .typing i:nth-child(2){ animation-delay:.18s; }
+  .typing i:nth-child(3){ animation-delay:.36s; }
+  @keyframes blink{ 0%,60%,100%{ opacity:.28; transform: translateY(0);} 30%{ opacity:1; transform: translateY(-3px);} }
+
+  /* Pulsing online dot */
+  .pulse-dot{ position:relative; }
+  .pulse-dot::after{ content:''; position:absolute; inset:0; border-radius:9999px; background:#22C55E; opacity:.55; animation: pulse 1.8s infinite ease-out; }
+  @keyframes pulse{ 0%{ transform: scale(1); opacity:.55; } 70%{ transform: scale(2.4); opacity:0; } 100%{ opacity:0; } }
+
+  /* FAQ accordion */
+  .faq-panel{ overflow:hidden; height:0; transition: height .35s cubic-bezier(.4,0,.2,1); }
+  .faq-item[data-open="true"] .faq-plus{ transform: rotate(45deg); }
+  .faq-plus{ transition: transform .3s ease; }
+
+  /* Matching overlay loader */
+  .loader-ring{ width:76px; height:76px; border-radius:9999px; border:4px solid rgb(var(--c-line)); border-top-color:#FF4FA3; border-right-color:#D946EF; animation: spin .9s linear infinite; }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+
+  /* Hero decorative orbit */
+  .orbit{ position:absolute; border-radius:9999px; border:1px dashed rgb(var(--c-line)); }
+
+  @media (prefers-reduced-motion: reduce){
+    *, *::before, *::after{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important; }
+  }
+</style>
+</head>
+
+<body class="font-sans antialiased">
+<div hidden class="border-brandpurple bg-softpurple border-brandpink bg-softpink border-line bg-surface bg-brandpink bg-brandpurple bg-line text-brandpurple w-6 -ml-3 lg:col-span-2 border-[#E11D6B] opacity-0 shadow-card border-b flex hidden text-[#22C55E]" aria-hidden="true"></div>
+<div class="page-glow" aria-hidden="true"><span class="glow-1"></span><span class="glow-2"></span><span class="glow-3"></span></div>
+<a href="#hero" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:bg-white focus:text-ink focus:px-4 focus:py-2 focus:rounded-full focus:shadow-card">Skip to chat form</a>
+
+<div class="relative z-10">
+
+<!-- =====================================================
+     1. STICKY NAVBAR
+====================================================== -->
+<header id="navbar" class="fixed top-0 inset-x-0 z-50 transition-all duration-300" style="padding-top: env(safe-area-inset-top);">
+  <div class="shell">
+    <nav class="flex items-center justify-between h-16 md:h-[72px]" aria-label="Main">
+      <!-- Logo -->
+      <a href="#hero" class="flex items-center gap-2 shrink-0" aria-label="PerfectChat home">
+        <span class="w-9 h-9 rounded-xl grad flex items-center justify-center shadow-glow" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h6A2.5 2.5 0 0 1 15 6.5v3A2.5 2.5 0 0 1 12.5 12H9l-3.2 2.4A.5.5 0 0 1 5 14v-2.2A2.5 2.5 0 0 1 4 9.5v-3Z" fill="#fff"/>
+            <path d="M17 9h.5A2.5 2.5 0 0 1 20 11.5v3a2.5 2.5 0 0 1-1 2V19a.5.5 0 0 1-.8.4L15 17h-3.5a2.5 2.5 0 0 1-2.3-1.5H12.5A3.5 3.5 0 0 0 16 12V9.2c.3-.1.6-.2 1-.2Z" fill="#fff" fill-opacity=".72"/>
+          </svg>
+        </span>
+        <span class="text-lg font-extrabold tracking-tight text-ink">PerfectChat</span>
+      </a>
+
+      <!-- Desktop links -->
+      <ul class="hidden lg:flex items-center gap-6 text-sm font-semibold text-body">
+        <li><a class="hover:text-brandpink transition-colors" href="#hero">Home</a></li>
+        <li><a class="hover:text-brandpink transition-colors" href="#online">Online</a></li>
+        <li><a class="hover:text-brandpink transition-colors" href="#how-it-works">How It Works</a></li>
+        <li><a class="hover:text-brandpink transition-colors" href="#why">Features</a></li>
+        <li><a class="hover:text-brandpink transition-colors" href="#safety">Safety</a></li>
+        <li><a class="hover:text-brandpink transition-colors" href="#faq">FAQ</a></li>
+      </ul>
+
+      <!-- Right side actions -->
+      <div class="flex items-center gap-2">
+        <button id="theme-toggle" type="button" class="w-10 h-10 rounded-full border border-line bg-surface flex items-center justify-center text-ink hover:border-brandpink transition-colors" aria-label="Switch to dark theme" aria-pressed="false">
+          <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          <svg class="icon-sun hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.7"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+
+        <a href="#hero" class="hidden lg:inline-flex btn btn-ghost px-5 text-sm items-center justify-center gap-2">Login</a>
+        <a href="#hero" data-cta-mode="text" class="hidden lg:inline-flex btn btn-grad px-5 text-sm items-center justify-center gap-2">Start Chat</a>
+
+        <button id="menu-toggle" type="button" class="lg:hidden w-10 h-10 rounded-full border border-line bg-surface flex items-center justify-center text-ink" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </nav>
+
+    <!-- Mobile dropdown panel -->
+    <div id="mobile-menu" class="lg:hidden hidden pb-3">
+      <div class="card p-3">
+        <ul class="text-[15px] font-semibold text-ink">
+          <li><a class="block px-3 py-3 rounded-2xl hover:bg-softpink" href="#hero">Home</a></li>
+          <li><a class="block px-3 py-3 rounded-2xl hover:bg-softpink" href="#online">Online</a></li>
+          <li><a class="block px-3 py-3 rounded-2xl hover:bg-softpink" href="#how-it-works">How It Works</a></li>
+          <li><a class="block px-3 py-3 rounded-2xl hover:bg-softpink" href="#why">Features</a></li>
+          <li><a class="block px-3 py-3 rounded-2xl hover:bg-softpink" href="#safety">Safety</a></li>
+          <li><a class="block px-3 py-3 rounded-2xl hover:bg-softpink" href="#faq">FAQ</a></li>
+        </ul>
+        <div class="grid grid-cols-2 gap-2 pt-2">
+          <a href="#hero" class="btn btn-ghost text-sm inline-flex items-center justify-center gap-2">Login</a>
+          <a href="#hero" data-cta-mode="text" class="btn btn-grad text-sm inline-flex items-center justify-center gap-2">Start Chat</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+<!-- =====================================================
+     2. HERO + INSTANT CHAT FORM
+====================================================== -->
+<section id="hero" class="pt-20 sm:pt-24 md:pt-28 lg:pt-36 pb-8 lg:pb-16">
+  <div class="shell grid lg:grid-cols-2 gap-5 lg:gap-12 items-start">
+
+    <!-- Marketing copy -->
+    <div class="lg:col-start-1 lg:row-start-1">
+      <span data-hero-badge class="chip !bg-softpink !border-[#FFD3E6] text-brandpink !text-[13px]">
+        <span class="w-1.5 h-1.5 rounded-full bg-brandpink" aria-hidden="true"></span>
+        100% Anonymous Chatting Platform
+      </span>
+
+      <h1 class="mt-4 font-extrabold tracking-tight text-ink text-[clamp(1.75rem,8.5vw,2.625rem)] lg:text-[clamp(2.75rem,3.8vw,3.5rem)] leading-[1.08]">
+        <span class="hero-line block">Meet New People.</span>
+        <span class="hero-line block">One <span class="grad-text">Conversation</span></span>
+        <span class="hero-line block">Away.</span>
+      </h1>
+
+      <p data-hero-p class="mt-3 lg:mt-4 text-[15px] md:text-base leading-relaxed max-w-[46ch]">
+        Randomly connect with strangers from around the world. No sign-ups. No pressure. Just real conversations.
+      </p>
+
+    </div>
+
+    <!-- Instant chat form (desktop: right column, spans both rows) -->
+    <div class="lg:col-start-2 lg:row-start-1 lg:row-span-3">
+      <div id="chat-form-card" class="card p-4 sm:p-6 lg:p-7">
+        <h2 class="text-[19px] md:text-[22px] font-extrabold text-ink">Choose How You Want to Chat</h2>
+        <p class="mt-1 text-[14px] md:text-[15px] leading-snug md:leading-relaxed">Select your preferred chat mode. You can switch anytime during the conversation.</p>
+
+        <form id="chat-form" novalidate class="mt-4">
+          <!-- Chat mode selection: real radio inputs for accessibility -->
+          <fieldset>
+            <legend class="sr-only">Choose a chat mode</legend>
+            <div class="grid grid-cols-2 gap-2.5 sm:gap-3" role="radiogroup" aria-label="Chat mode">
+
+              <label data-mode-card="text" class="mode-card relative cursor-pointer rounded-2xl border-2 p-3 sm:p-4 flex flex-col sm:flex-row gap-2 sm:gap-3 items-start transition-all border-brandpink bg-softpink">
+                <input class="sr-only" type="radio" name="chat-mode" value="text" checked />
+                <span class="icon-tile tile-pink" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 6.8A2.8 2.8 0 0 1 6.8 4h10.4A2.8 2.8 0 0 1 20 6.8v6.4a2.8 2.8 0 0 1-2.8 2.8H10l-4.2 3.2A.5.5 0 0 1 5 18.8V16a2.8 2.8 0 0 1-1-2.8V6.8Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+                </span>
+                <span class="min-w-0">
+                  <span class="block font-bold text-ink text-[15px] pr-6 sm:pr-0">Text Chat</span>
+                  <span class="block text-[12.5px] sm:text-[13px] leading-snug">Private text conversations</span>
+                </span>
+                <span data-radio class="absolute top-3.5 right-3.5 w-5 h-5 rounded-full border-2 border-brandpink flex items-center justify-center" aria-hidden="true">
+                  <span data-dot class="w-2.5 h-2.5 rounded-full bg-brandpink"></span>
+                </span>
+              </label>
+
+              <label data-mode-card="video" class="mode-card relative cursor-pointer rounded-2xl border-2 p-3 sm:p-4 flex flex-col sm:flex-row gap-2 sm:gap-3 items-start transition-all border-line bg-surface">
+                <input class="sr-only" type="radio" name="chat-mode" value="video" />
+                <span class="icon-tile tile-purple" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="3" y="6" width="12" height="12" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="m15 11 4.2-2.6a.6.6 0 0 1 .9.5v6.2a.6.6 0 0 1-.9.5L15 13v-2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+                </span>
+                <span class="min-w-0">
+                  <span class="block font-bold text-ink text-[15px] pr-6 sm:pr-0">Video Chat</span>
+                  <span class="block text-[12.5px] sm:text-[13px] leading-snug">Face-to-face conversations</span>
+                </span>
+                <span data-radio class="absolute top-3.5 right-3.5 w-5 h-5 rounded-full border-2 border-line flex items-center justify-center" aria-hidden="true">
+                  <span data-dot class="w-2.5 h-2.5 rounded-full bg-brandpurple opacity-0"></span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          <!-- Nickname -->
+          <div class="mt-4">
+            <label for="nickname" class="block text-sm font-bold text-ink">Enter your nickname</label>
+            <input id="nickname" name="nickname" type="text" inputmode="text" autocomplete="off" maxlength="20"
+              placeholder="Type your nickname"
+              aria-describedby="nickname-help nickname-error"
+              class="mt-2 w-full h-[52px] rounded-2xl px-4 text-[15px] text-ink bg-surface border border-line placeholder:text-body/60 focus:border-brandpink focus:ring-4 focus:ring-brandpink/15 outline-none transition" />
+            <p id="nickname-error" class="mt-2 text-[13px] font-semibold text-[#E11D6B] hidden" role="alert"></p>
+            <p id="nickname-help" class="mt-2 text-[13px]">Your nickname is visible only during the current chat session.</p>
+          </div>
+
+          <button id="start-btn" type="submit" class="btn btn-grad w-full mt-4 text-base px-6 inline-flex items-center justify-center gap-2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6.8A2.8 2.8 0 0 1 6.8 4h10.4A2.8 2.8 0 0 1 20 6.8v6.4a2.8 2.8 0 0 1-2.8 2.8H10l-4.2 3.2A.5.5 0 0 1 5 18.8v-2.9" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/></svg>
+            <span id="start-btn-label">Start Text Chat</span>
+          </button>
+
+          <!-- Status region for validation + matching announcements -->
+          <p id="form-status" class="sr-only" aria-live="polite"></p>
+        </form>
+
+        <!-- Online indicator -->
+        <div class="mt-4 pt-4 border-t border-line flex items-center gap-3">
+          <span class="relative w-2.5 h-2.5 rounded-full bg-[#22C55E] pulse-dot" aria-hidden="true"></span>
+          <p class="text-[14px] font-semibold text-ink"><span data-online-count>12,486</span>+ <span class="font-medium text-body">people online right now</span></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trust points: below the form on mobile so the form stays above the fold -->
+    <div class="lg:col-start-1 lg:row-start-2">
+      <!-- Trust points -->
+      <ul class="flex flex-wrap gap-1.5 sm:gap-2" aria-label="Why people trust PerfectChat">
+        <li class="trust-badge chip !text-[11.5px] sm:!text-[13px] !px-2 !py-2 sm:!px-3 !gap-1">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="3" stroke="#FF4FA3" stroke-width="1.8"/><path d="M8 10V7.5a4 4 0 1 1 8 0V10" stroke="#FF4FA3" stroke-width="1.8"/></svg>
+          100% Anonymous
+        </li>
+        <li class="trust-badge chip !text-[11.5px] sm:!text-[13px] !px-2 !py-2 sm:!px-3 !gap-1">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M13 3 5 13h5l-1 8 8-10h-5l1-8Z" stroke="#8B5CF6" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          Instant Match
+        </li>
+        <li class="trust-badge chip !text-[11.5px] sm:!text-[13px] !px-2 !py-2 sm:!px-3 !gap-1">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5 5 6v5.5c0 4.3 2.9 7.4 7 8.9 4.1-1.5 7-4.6 7-8.9V6l-7-2.5Z" stroke="#FF4FA3" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          No Signup
+        </li>
+      </ul>
+    </div>
+
+    <!-- Hero decorative visual (mobile: below form) -->
+    <div class="lg:col-start-1 lg:row-start-3">
+      <div id="hero-visual" class="relative mx-auto w-full max-w-[360px] sm:max-w-[400px] aspect-square" aria-hidden="true">
+        <div class="orbit inset-[8%]"></div>
+        <div class="orbit inset-[20%]"></div>
+        <div class="orbit inset-[32%]"></div>
+
+        <!-- Centre logo -->
+        <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[26%] h-[26%] rounded-full bg-surface shadow-card border border-line flex items-center justify-center">
+          <span class="w-[54%] h-[54%] rounded-2xl grad flex items-center justify-center">
+            <svg width="60%" height="60%" viewBox="0 0 24 24" fill="none"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h6A2.5 2.5 0 0 1 15 6.5v3A2.5 2.5 0 0 1 12.5 12H9l-3.2 2.4A.5.5 0 0 1 5 14v-2.2A2.5 2.5 0 0 1 4 9.5v-3Z" fill="#fff"/><path d="M17 9h.5A2.5 2.5 0 0 1 20 11.5v3a2.5 2.5 0 0 1-1 2V19a.5.5 0 0 1-.8.4L15 17h-3.5a2.5 2.5 0 0 1-2.3-1.5H12.5A3.5 3.5 0 0 0 16 12V9.2c.3-.1.6-.2 1-.2Z" fill="#fff" fill-opacity=".72"/></svg>
+          </span>
+        </div>
+
+        <!-- Four orbiting avatars -->
+        <div class="float-avatar absolute left-[4%] top-[24%] w-[22%] h-[22%]">
+          <div class="avatar avatar-ring w-full h-full text-lg" style="background-image:linear-gradient(135deg,#FF4FA3,#D946EF)">A</div>
+          <span class="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-full bg-[#22C55E] border-2 border-white"></span>
+        </div>
+        <div class="float-avatar absolute right-[4%] top-[16%] w-[20%] h-[20%]">
+          <div class="avatar avatar-ring w-full h-full text-lg" style="background-image:linear-gradient(135deg,#8B5CF6,#D946EF)">M</div>
+          <span class="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-full bg-[#22C55E] border-2 border-white"></span>
+        </div>
+        <div class="float-avatar absolute left-[8%] bottom-[14%] w-[20%] h-[20%]">
+          <div class="avatar avatar-ring w-full h-full text-lg" style="background-image:linear-gradient(135deg,#A78BFA,#8B5CF6)">S</div>
+          <span class="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-full bg-[#22C55E] border-2 border-white"></span>
+        </div>
+        <div class="float-avatar absolute right-[6%] bottom-[18%] w-[22%] h-[22%]">
+          <div class="avatar avatar-ring w-full h-full text-lg" style="background-image:linear-gradient(135deg,#FF4FA3,#FF8AC4)">J</div>
+          <span class="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-full bg-[#22C55E] border-2 border-white"></span>
+        </div>
+
+        <!-- Floating message bubbles -->
+        <div class="float-bubble absolute left-[30%] top-[36%] bg-surface border border-line rounded-full px-3 py-1.5 text-[12px] font-semibold text-ink shadow-card">Hey! 👋</div>
+        <div class="float-bubble absolute right-[16%] top-[45%] bg-surface border border-line rounded-full px-3 py-1.5 text-[12px] font-semibold text-ink shadow-card">Hello! 😊</div>
+        <div class="float-bubble absolute left-[24%] bottom-[16%] bg-surface border border-line rounded-full px-3 py-1.5 text-[12px] font-semibold text-ink shadow-card">Nice to meet you!</div>
+        <div class="float-bubble absolute left-[2%] top-[46%] bg-surface border border-line rounded-full px-3 py-2 shadow-card typing flex gap-1 items-center"><i></i><i></i><i></i></div>
+
+        <!-- Small floating dots -->
+        <span class="absolute left-[46%] top-[6%] w-2 h-2 rounded-full bg-brandpink/60"></span>
+        <span class="absolute right-[24%] bottom-[8%] w-2.5 h-2.5 rounded-full bg-brandpurple/50"></span>
+        <span class="absolute left-[14%] top-[8%] w-1.5 h-1.5 rounded-full bg-brandpurple/60"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================
+     3. PEOPLE ONLINE RIGHT NOW
+====================================================== -->
+<section id="online" class="py-8 lg:py-12 scroll-mt-24">
+  <div class="shell">
+    <div data-reveal class="card p-5 sm:p-7 lg:p-8 grid lg:grid-cols-[1.1fr_.9fr] gap-6 items-center">
+      <div>
+        <h2 class="h2">People <span class="grad-text">Online</span> Right Now</h2>
+        <p class="mt-2 text-[15px]">Real people are chatting on PerfectChat from 95+ countries, every minute of the day.</p>
+
+        <!-- Country chips (rendered from JS demo data) -->
+        <ul id="country-chips" class="mt-4 flex flex-wrap gap-2" aria-label="Countries currently active"></ul>
+      </div>
+
+      <div class="lg:border-l lg:border-line lg:pl-8">
+        <!-- Overlapping avatars with online indicators -->
+        <ul id="online-avatars" class="flex items-center" aria-label="A sample of people online now"></ul>
+
+        <div class="mt-4 flex items-center gap-3">
+          <span class="relative w-3 h-3 rounded-full bg-[#22C55E] pulse-dot" aria-hidden="true"></span>
+          <div>
+            <p class="text-2xl sm:text-3xl font-extrabold grad-text leading-none"><span data-online-count>12,486</span>+</p>
+            <p class="text-[14px] mt-1">People Online</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================
+     4. HOW PERFECTCHAT WORKS
+====================================================== -->
+<section id="how-it-works" class="py-10 lg:py-16 scroll-mt-24">
+  <div class="shell">
+    <div class="text-center max-w-[46ch] mx-auto">
+      <p class="eyebrow">Four steps</p>
+      <h2 class="h2 mt-2">How <span class="grad-text">PerfectChat</span> Works</h2>
+      <p class="mt-3 text-[15px]">From landing on this page to talking with someone new takes less than a minute.</p>
+    </div>
+
+    <!-- Desktop: connected timeline. Mobile: horizontal scroll cards. -->
+    <div class="mt-8 relative">
+      <div class="hidden md:block absolute top-[46px] left-[12%] right-[12%] h-px bg-line" aria-hidden="true"></div>
+      <ol id="steps" class="scroller desk-grid md:grid-cols-2 lg:grid-cols-4 relative"></ol>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================
+     5. TEXT CHAT VS VIDEO CHAT
+====================================================== -->
+<section id="modes" class="py-10 lg:py-16 scroll-mt-24">
+  <div class="shell">
+    <div class="text-center max-w-[46ch] mx-auto">
+      <h2 class="h2">Text Chat or Video Chat?</h2>
+      <p class="mt-3 text-[15px]">Choose the way you feel most comfortable. You can switch modes mid-conversation.</p>
+    </div>
+
+    <div class="mt-8 grid md:grid-cols-2 gap-5 max-w-[900px] mx-auto">
+      <!-- Text chat card -->
+      <article data-reveal class="card p-6 sm:p-7 text-center transition-transform duration-300 md:hover:-translate-y-1.5">
+        <span class="icon-tile tile-pink !w-14 !h-14 !rounded-2xl mx-auto" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M4 6.8A2.8 2.8 0 0 1 6.8 4h10.4A2.8 2.8 0 0 1 20 6.8v6.4a2.8 2.8 0 0 1-2.8 2.8H10l-4.2 3.2A.5.5 0 0 1 5 18.8V16a2.8 2.8 0 0 1-1-2.8V6.8Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        </span>
+        <h3 class="mt-4 text-xl font-extrabold text-ink">Text Chat</h3>
+        <ul class="mt-4 space-y-2.5 text-[15px] text-left max-w-[240px] mx-auto">
+          <li class="flex gap-2.5 items-start"><span class="mt-2 w-1.5 h-1.5 rounded-full bg-brandpink shrink-0" aria-hidden="true"></span>Low data usage</li>
+          <li class="flex gap-2.5 items-start"><span class="mt-2 w-1.5 h-1.5 rounded-full bg-brandpink shrink-0" aria-hidden="true"></span>Super fast</li>
+          <li class="flex gap-2.5 items-start"><span class="mt-2 w-1.5 h-1.5 rounded-full bg-brandpink shrink-0" aria-hidden="true"></span>Completely private</li>
+        </ul>
+        <button type="button" data-cta-mode="text" class="btn btn-grad w-full mt-6 px-6 inline-flex items-center justify-center gap-2">Start Text Chat</button>
+      </article>
+
+      <!-- Video chat card -->
+      <article data-reveal class="card p-6 sm:p-7 text-center transition-transform duration-300 md:hover:-translate-y-1.5">
+        <span class="icon-tile tile-purple !w-14 !h-14 !rounded-2xl mx-auto" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><rect x="3" y="6" width="12" height="12" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="m15 11 4.2-2.6a.6.6 0 0 1 .9.5v6.2a.6.6 0 0 1-.9.5L15 13v-2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        </span>
+        <h3 class="mt-4 text-xl font-extrabold text-ink">Video Chat</h3>
+        <ul class="mt-4 space-y-2.5 text-[15px] text-left max-w-[240px] mx-auto">
+          <li class="flex gap-2.5 items-start"><span class="mt-2 w-1.5 h-1.5 rounded-full bg-brandpurple shrink-0" aria-hidden="true"></span>Face to face</li>
+          <li class="flex gap-2.5 items-start"><span class="mt-2 w-1.5 h-1.5 rounded-full bg-brandpurple shrink-0" aria-hidden="true"></span>HD quality</li>
+          <li class="flex gap-2.5 items-start"><span class="mt-2 w-1.5 h-1.5 rounded-full bg-brandpurple shrink-0" aria-hidden="true"></span>Real-time connection</li>
+        </ul>
+        <button type="button" data-cta-mode="video" class="btn btn-purple w-full mt-6 px-6 inline-flex items-center justify-center gap-2">Start Video Chat</button>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================
+     6. WHY PERFECTCHAT (bento grid)
+====================================================== -->
+<section id="why" class="py-10 lg:py-16 scroll-mt-24">
+  <div class="shell">
+    <div class="text-center max-w-[46ch] mx-auto">
+      <p class="eyebrow">The difference</p>
+      <h2 class="h2 mt-2">Why <span class="grad-text">PerfectChat</span>?</h2>
+      <p class="mt-3 text-[15px]">Everything you need to talk to someone new, and nothing you don't.</p>
+    </div>
+
+    <div id="bento" class="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5"></div>
+  </div>
+</section>
+
+<!-- =====================================================
+     7. LIVE CONVERSATION PREVIEW
+====================================================== -->
+<section id="preview" class="py-10 lg:py-16 scroll-mt-24">
+  <div class="shell grid lg:grid-cols-[.95fr_1.05fr] gap-8 lg:gap-12 items-center">
+    <div>
+      <p class="eyebrow">Live preview</p>
+      <h2 class="h2 mt-2">See How Conversations Flow</h2>
+      <p class="mt-3 text-[15px] max-w-[46ch]">No profiles to fill, no photos to upload. You get matched, you say hi, and the conversation takes it from there.</p>
+      <ul class="mt-5 space-y-3 text-[15px]">
+        <li class="flex gap-3 items-start"><span class="icon-tile tile-pink !w-8 !h-8 !rounded-xl" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="m5 13 4 4L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Messages are never stored after the chat ends</li>
+        <li class="flex gap-3 items-start"><span class="icon-tile tile-purple !w-8 !h-8 !rounded-xl" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="m5 13 4 4L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Skip to the next person whenever you want</li>
+      </ul>
+    </div>
+
+    <!-- Chat window preview -->
+    <div class="card p-3 sm:p-4 max-w-[460px] w-full mx-auto lg:mx-0">
+      <!-- Chat header -->
+      <div class="flex items-center gap-3 px-2 pb-3 border-b border-line">
+        <span class="relative">
+          <span class="avatar w-10 h-10 text-sm" style="background-image:linear-gradient(135deg,#8B5CF6,#D946EF)" aria-hidden="true">A</span>
+          <span class="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-[#22C55E] border-2 border-white" aria-hidden="true"></span>
+        </span>
+        <div class="min-w-0 flex-1">
+          <p class="font-bold text-ink text-[15px] leading-tight">Alex</p>
+          <p class="text-[12px] text-[#22C55E] font-semibold">Online</p>
+        </div>
+        <button type="button" class="w-9 h-9 rounded-full hover:bg-softpink flex items-center justify-center text-body" aria-label="More options for this chat">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
+        </button>
+      </div>
+
+      <!-- Messages (animated in sequence on scroll) -->
+      <div id="chat-thread" class="px-1 py-4 space-y-3 min-h-[280px]" role="log" aria-label="Example conversation"></div>
+
+      <!-- Typing indicator -->
+      <div id="chat-typing" class="px-2 flex items-center gap-2 text-[13px]">
+        <span class="typing flex gap-1 items-center bg-softpurple rounded-full px-3 py-2" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>Alex is typing…</span>
+      </div>
+
+      <!-- Input-style bottom area (visual only in this preview) -->
+      <div class="mt-3 flex items-center gap-2 border-t border-line pt-3">
+        <div class="flex-1 h-11 rounded-full bg-softpink border border-line flex items-center px-4 text-[14px] text-body/70">Type a message…</div>
+        <span class="w-11 h-11 rounded-full grad flex items-center justify-center shrink-0" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4.5 12 20 4.5 15.5 20l-3.3-5.7L4.5 12Z" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================
+     8. COMMUNITY STATISTICS
+====================================================== -->
+<section id="stats" class="py-8 lg:py-12 scroll-mt-24">
+  <div class="shell">
+    <div id="stats-card" class="grad rounded-[1.75rem] p-6 sm:p-8 shadow-lift">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-4 text-white">
+        <div class="stat flex items-center gap-2.5 sm:gap-3 lg:justify-center">
+          <span class="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-white/20 flex items-center justify-center shrink-0" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3.2" stroke="#fff" stroke-width="1.7"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/><path d="M16 6.2a3 3 0 0 1 0 5.6M17.5 19a5.6 5.6 0 0 0-2-4.3" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/></svg>
+          </span>
+          <div class="min-w-0">
+            <p class="text-[20px] sm:text-[26px] font-extrabold leading-none"><span data-counter data-to="120" data-suffix="K+">0</span></p>
+            <p class="text-[12px] sm:text-[13px] leading-tight text-white/85 mt-1">Matches Today</p>
+          </div>
+        </div>
+
+        <div class="stat flex items-center gap-2.5 sm:gap-3 lg:justify-center">
+          <span class="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-white/20 flex items-center justify-center shrink-0" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.4" stroke="#fff" stroke-width="1.7"/><path d="M3.6 12h16.8M12 3.6c2.2 2.4 3.3 5.3 3.3 8.4S14.2 18 12 20.4C9.8 18 8.7 15.1 8.7 12S9.8 6 12 3.6Z" stroke="#fff" stroke-width="1.7"/></svg>
+          </span>
+          <div class="min-w-0">
+            <p class="text-[20px] sm:text-[26px] font-extrabold leading-none"><span data-counter data-to="95" data-suffix="+">0</span></p>
+            <p class="text-[12px] sm:text-[13px] leading-tight text-white/85 mt-1">Countries</p>
+          </div>
+        </div>
+
+        <div class="stat flex items-center gap-2.5 sm:gap-3 lg:justify-center">
+          <span class="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-white/20 flex items-center justify-center shrink-0" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M13 3.5 5.5 13H10l-1 7.5L18.5 11H14l-1 -7.5Z" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          </span>
+          <div class="min-w-0">
+            <p class="text-[20px] sm:text-[26px] font-extrabold leading-none"><span data-counter data-to="3" data-suffix=" sec">0</span></p>
+            <p class="text-[12px] sm:text-[13px] leading-tight text-white/85 mt-1">Average Match Time</p>
+          </div>
+        </div>
+
+        <div class="stat flex items-center gap-2.5 sm:gap-3 lg:justify-center">
+          <span class="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-white/20 flex items-center justify-center shrink-0" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 3.5 5 6v5.5c0 4.3 2.9 7.4 7 8.9 4.1-1.5 7-4.6 7-8.9V6l-7-2.5Z" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          </span>
+          <div class="min-w-0">
+            <p class="text-[20px] sm:text-[26px] font-extrabold leading-none"><span data-counter data-to="99.9" data-decimals="1" data-suffix="%">0</span></p>
+            <p class="text-[12px] sm:text-[13px] leading-tight text-white/85 mt-1">Uptime</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================
+     9. SAFETY AND PRIVACY
+====================================================== -->
+<section id="safety" class="py-10 lg:py-16 scroll-mt-24">
+  <div class="shell">
+    <div data-reveal class="card p-6 sm:p-8 lg:p-10 grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
+      <div>
+        <p class="eyebrow">Safety first</p>
+        <h2 class="h2 mt-2">Your <span class="grad-text">Safety</span> Is Our Priority</h2>
+
+        <ul class="mt-6 space-y-5">
+          <li class="safety-item flex gap-4">
+            <span class="icon-tile tile-pink" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.7"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+            <span><span class="block font-bold text-ink text-[15px]">No Profiles</span><span class="block text-[14px] leading-snug mt-0.5">We don't collect or store unnecessary personal information.</span></span>
+          </li>
+          <li class="safety-item flex gap-4">
+            <span class="icon-tile tile-purple" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 3.5 5 6v5.5c0 4.3 2.9 7.4 7 8.9 4.1-1.5 7-4.6 7-8.9V6l-7-2.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 9v3.5M12 15.4h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+            <span><span class="block font-bold text-ink text-[15px]">Report Instantly</span><span class="block text-[14px] leading-snug mt-0.5">Report inappropriate users immediately.</span></span>
+          </li>
+          <li class="safety-item flex gap-4">
+            <span class="icon-tile tile-pink" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.4" stroke="currentColor" stroke-width="1.7"/><path d="m6.2 6.2 11.6 11.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+            <span><span class="block font-bold text-ink text-[15px]">Block Anytime</span><span class="block text-[14px] leading-snug mt-0.5">Block or skip any user.</span></span>
+          </li>
+          <li class="safety-item flex gap-4">
+            <span class="icon-tile tile-purple" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M14 4h3.5A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5H14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M10 8 6 12l4 4M6.4 12H15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span><span class="block font-bold text-ink text-[15px]">Leave Anytime</span><span class="block text-[14px] leading-snug mt-0.5">Exit the conversation whenever you want.</span></span>
+          </li>
+        </ul>
+
+        <p class="mt-6 text-[13px] leading-relaxed bg-softpink border border-line rounded-2xl p-4">
+          PerfectChat is intended for adults. Users should never share sensitive personal or financial information.
+        </p>
+      </div>
+
+      <!-- Shield + lock illustration (inline SVG, no external files) -->
+      <div class="relative mx-auto w-full max-w-[320px]">
+        <div id="shield" class="relative">
+          <svg viewBox="0 0 240 280" class="w-full h-auto" role="img" aria-label="Illustration of a shield with a padlock representing privacy protection">
+            <defs>
+              <linearGradient id="shieldGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#FF4FA3"/><stop offset="48%" stop-color="#D946EF"/><stop offset="100%" stop-color="#8B5CF6"/>
+              </linearGradient>
+              <linearGradient id="shieldGloss" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#fff" stop-opacity=".38"/><stop offset="100%" stop-color="#fff" stop-opacity="0"/>
+              </linearGradient>
+              <filter id="shieldShadow" x="-40%" y="-20%" width="180%" height="160%">
+                <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#D946EF" flood-opacity=".35"/>
+              </filter>
+            </defs>
+            <path filter="url(#shieldShadow)" fill="url(#shieldGrad)" d="M120 12 32 46v92c0 58 37 100 88 118 51-18 88-60 88-118V46L120 12Z"/>
+            <path fill="url(#shieldGloss)" d="M120 12 32 46v92c0 20 4.5 37.5 12.5 52C58 158 74 96 120 12Z"/>
+            <rect x="82" y="126" width="76" height="60" rx="16" fill="#fff" fill-opacity=".96"/>
+            <path d="M98 126v-14a22 22 0 0 1 44 0v14" stroke="#fff" stroke-width="12" fill="none" stroke-linecap="round"/>
+            <circle cx="120" cy="150" r="9" fill="#8B5CF6"/>
+            <rect x="116" y="156" width="8" height="18" rx="4" fill="#8B5CF6"/>
+          </svg>
+
+          <!-- Floating decorative bubbles around the shield -->
+          <span class="float-bubble absolute -right-2 top-6 w-11 h-11 rounded-2xl bg-brandpurple/90 rounded-br-md" aria-hidden="true"></span>
+          <span class="float-bubble absolute -left-1 bottom-16 w-9 h-9 rounded-2xl bg-brandpink/90 rounded-bl-md" aria-hidden="true"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================
+     10. TESTIMONIALS
+====================================================== -->
+<section id="testimonials" class="py-10 lg:py-16 scroll-mt-24">
+  <div class="shell">
+    <div class="text-center max-w-[46ch] mx-auto">
+      <p class="eyebrow">Real users</p>
+      <h2 class="h2 mt-2">What People Say</h2>
+    </div>
+
+    <!-- Mobile: swipeable scroller. Desktop: 3-column grid. -->
+    <div id="testimonials-track" class="scroller desk-grid mt-8 md:grid-cols-3"></div>
+
+    <!-- Pagination dots (mobile only) -->
+    <div id="testimonial-dots" class="md:hidden flex justify-center gap-2 mt-5" role="tablist" aria-label="Testimonial navigation"></div>
+  </div>
+</section>
+
+<!-- =====================================================
+     11. FAQ
+====================================================== -->
+<section id="faq" class="py-10 lg:py-16 scroll-mt-24">
+  <div class="shell max-w-[820px]">
+    <div class="text-center">
+      <p class="eyebrow">Answers</p>
+      <h2 class="h2 mt-2">Frequently <span class="grad-text">Asked</span> Questions</h2>
+    </div>
+    <div id="faq-list" class="mt-8 space-y-3"></div>
+  </div>
+</section>
+
+<!-- =====================================================
+     12. FINAL CTA
+====================================================== -->
+<section id="final-cta" class="py-10 lg:py-16 scroll-mt-24">
+  <div class="shell">
+    <div id="cta-card" class="relative overflow-hidden grad rounded-[1.75rem] p-8 sm:p-12 text-center shadow-lift">
+      <!-- Decorative dashed paper-plane path -->
+      <svg class="absolute right-4 top-4 w-28 h-24 sm:w-40 sm:h-32 opacity-70" viewBox="0 0 160 120" fill="none" aria-hidden="true">
+        <path d="M6 108C34 96 58 74 74 46 84 28 100 16 126 14" stroke="#fff" stroke-opacity=".6" stroke-width="2" stroke-dasharray="6 8" stroke-linecap="round"/>
+        <g transform="translate(120,2) rotate(-14)"><path d="M0 9 30 0 21 26 15 16 0 9Z" fill="#fff" fill-opacity=".92"/><path d="M15 16 30 0" stroke="#fff" stroke-opacity=".55" stroke-width="1.4"/></g>
+      </svg>
+
+      <h2 class="text-white font-extrabold text-[clamp(1.6rem,6vw,2.4rem)] leading-tight">Ready to Meet Someone New?</h2>
+      <p class="text-white/90 mt-3 text-[15px] sm:text-base">Start your next conversation in seconds.</p>
+
+      <div class="mt-7 flex flex-col sm:flex-row gap-3 justify-center max-w-[520px] mx-auto">
+        <button type="button" data-cta-mode="text" class="btn bg-white text-ink px-6 flex-1 whitespace-nowrap hover:bg-white/90 inline-flex items-center justify-center gap-2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6.8A2.8 2.8 0 0 1 6.8 4h10.4A2.8 2.8 0 0 1 20 6.8v6.4a2.8 2.8 0 0 1-2.8 2.8H10l-4.2 3.2A.5.5 0 0 1 5 18.8v-2.9" stroke="#FF4FA3" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          Start Text Chat
+        </button>
+        <button type="button" data-cta-mode="video" class="btn bg-white/15 text-white border border-white/40 px-6 flex-1 whitespace-nowrap hover:bg-white/25 inline-flex items-center justify-center gap-2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="6" width="12" height="12" rx="3" stroke="#fff" stroke-width="1.7"/><path d="m15 11 4.2-2.6a.6.6 0 0 1 .9.5v6.2a.6.6 0 0 1-.9.5L15 13v-2Z" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          Start Video Chat
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- =====================================================
+     13. FOOTER
+====================================================== -->
+<footer class="border-t border-line pt-10 pb-8" style="padding-bottom: calc(2rem + env(safe-area-inset-bottom));">
+  <div class="shell">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+      <div>
+        <a href="#hero" class="flex items-center gap-2" aria-label="PerfectChat home">
+          <span class="w-8 h-8 rounded-lg grad flex items-center justify-center" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h6A2.5 2.5 0 0 1 15 6.5v3A2.5 2.5 0 0 1 12.5 12H9l-3.2 2.4A.5.5 0 0 1 5 14v-2.2A2.5 2.5 0 0 1 4 9.5v-3Z" fill="#fff"/><path d="M17 9h.5A2.5 2.5 0 0 1 20 11.5v3a2.5 2.5 0 0 1-1 2V19a.5.5 0 0 1-.8.4L15 17h-3.5a2.5 2.5 0 0 1-2.3-1.5H12.5A3.5 3.5 0 0 0 16 12V9.2c.3-.1.6-.2 1-.2Z" fill="#fff" fill-opacity=".72"/></svg>
+          </span>
+          <span class="font-extrabold text-ink">PerfectChat</span>
+        </a>
+        <p class="text-[14px] mt-2">Real people. Real conversations.</p>
+      </div>
+
+      <nav aria-label="Footer">
+        <ul class="flex flex-wrap gap-x-5 gap-y-2 text-[14px] font-semibold text-body">
+          <li><a href="#" class="hover:text-brandpink transition-colors">Privacy Policy</a></li>
+          <li><a href="#" class="hover:text-brandpink transition-colors">Terms of Service</a></li>
+          <li><a href="#" class="hover:text-brandpink transition-colors">Community Guidelines</a></li>
+          <li><a href="#safety" class="hover:text-brandpink transition-colors">Safety Tips</a></li>
+          <li><a href="#" class="hover:text-brandpink transition-colors">Contact Us</a></li>
+        </ul>
+      </nav>
+
+      <ul class="flex items-center gap-3">
+        <li><a href="#" aria-label="PerfectChat on Facebook" class="w-10 h-10 rounded-full border border-line flex items-center justify-center text-ink hover:border-brandpink transition-colors"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.5 21v-8h2.7l.4-3.1h-3.1V7.9c0-.9.25-1.5 1.55-1.5H16.7V3.6c-.3 0-1.3-.1-2.45-.1-2.4 0-4.05 1.5-4.05 4.2v2.2H7.5V13h2.7v8h3.3Z"/></svg></a></li>
+        <li><a href="#" aria-label="PerfectChat on X" class="w-10 h-10 rounded-full border border-line flex items-center justify-center text-ink hover:border-brandpink transition-colors"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.7 3h3.1l-6.8 7.8L22 21h-6.2l-4.9-6.3L5.3 21H2.2l7.3-8.3L2 3h6.4l4.4 5.8L17.7 3Zm-1.1 16.1h1.7L7.5 4.8H5.7l10.9 14.3Z"/></svg></a></li>
+        <li><a href="#" aria-label="PerfectChat on Instagram" class="w-10 h-10 rounded-full border border-line flex items-center justify-center text-ink hover:border-brandpink transition-colors"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.7"/><circle cx="17" cy="7" r="1.2" fill="currentColor"/></svg></a></li>
+      </ul>
+    </div>
+
+    <p class="text-[13px] mt-8 pt-6 border-t border-line text-center md:text-left">© <span id="year">2026</span> PerfectChat. All rights reserved.</p>
+  </div>
+</footer>
+
+<!-- =====================================================
+     MATCHING OVERLAY (front-end demo only)
+====================================================== -->
+<div id="match-overlay" class="fixed inset-0 z-[60] hidden items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="match-title">
+  <div class="absolute inset-0 bg-ink/40 backdrop-blur-sm" data-overlay-backdrop></div>
+  <div class="relative card w-full max-w-[380px] p-7 text-center">
+    <div id="match-spinner" class="loader-ring mx-auto" aria-hidden="true"></div>
+    <div id="match-success" class="hidden mx-auto w-[76px] h-[76px] rounded-full grad flex items-center justify-center" aria-hidden="true">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none"><path d="m5 13 4 4L19 7" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+
+    <h2 id="match-title" class="mt-5 text-xl font-extrabold text-ink">Finding someone for you…</h2>
+    <p id="match-sub" class="mt-2 text-[14px]">Matching you with a random person. This usually takes about 3 seconds.</p>
+
+    <div class="mt-5 h-2 rounded-full bg-softpink overflow-hidden" aria-hidden="true">
+      <div id="match-progress" class="h-full w-0 grad rounded-full transition-[width] duration-200 ease-out"></div>
+    </div>
+
+    <p id="match-status" class="sr-only" aria-live="assertive"></p>
+
+    <button id="match-cancel" type="button" class="btn btn-ghost w-full mt-5 px-6 inline-flex items-center justify-center gap-2">Cancel</button>
+  </div>
+</div>
+
+</div><!-- /relative z-10 -->
+
+<!-- =====================================================
+     SCRIPTS: GSAP + ScrollTrigger
+====================================================== -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+
+<script>
+/* =========================================================
+   DEMO DATA
+   Everything here is placeholder content. Swap these objects
+   for API responses when a backend is connected.
+========================================================= */
+const SITE_DATA = {
+  onlineCount: 12486,                                  // -> GET /api/online-count
+  countries: [
+    { flag: '🇮🇳', name: 'India' },
+    { flag: '🇺🇸', name: 'USA' },
+    { flag: '🇯🇵', name: 'Japan' },
+    { flag: '🇧🇷', name: 'Brazil' },
+    { flag: '🇫🇷', name: 'France' }
+  ],
+  moreCountries: 90,
+  // CSS-based avatars: initial + gradient. No external images, no likeness rights.
+  people: [
+    { initial: 'A', grad: 'linear-gradient(135deg,#FF4FA3,#D946EF)' },
+    { initial: 'M', grad: 'linear-gradient(135deg,#8B5CF6,#D946EF)' },
+    { initial: 'S', grad: 'linear-gradient(135deg,#A78BFA,#8B5CF6)' },
+    { initial: 'J', grad: 'linear-gradient(135deg,#FF4FA3,#FF8AC4)' },
+    { initial: 'R', grad: 'linear-gradient(135deg,#D946EF,#8B5CF6)' },
+    { initial: 'K', grad: 'linear-gradient(135deg,#FF6FB4,#FF4FA3)' },
+    { initial: 'L', grad: 'linear-gradient(135deg,#8B5CF6,#6366F1)' },
+    { initial: 'N', grad: 'linear-gradient(135deg,#F472B6,#D946EF)' },
+    { initial: 'T', grad: 'linear-gradient(135deg,#C084FC,#8B5CF6)' }
+  ]
+};
+
+const STEPS = [
+  { title: 'Choose Mode',    text: 'Select Text Chat or Video Chat.',                  tone: 'pink',   icon: 'chat' },
+  { title: 'Enter Nickname', text: 'Add a nickname to begin.',                         tone: 'purple', icon: 'user' },
+  { title: 'Get Matched',    text: 'We instantly connect you with a random person.',   tone: 'pink',   icon: 'bolt' },
+  { title: 'Start Talking',  text: 'Enjoy a meaningful conversation.',                 tone: 'purple', icon: 'heart' }
+];
+
+const FEATURES = [
+  { title: '100% Anonymous',  text: 'Your identity stays private the whole time.', tone: 'pink',   icon: 'lock',  wide: true },
+  { title: 'Instant Match',   text: 'Get connected in just a few seconds.',        tone: 'purple', icon: 'bolt' },
+  { title: 'No Signup',       text: 'Jump in without creating an account.',        tone: 'pink',   icon: 'user' },
+  { title: 'Safe Community',  text: 'Moderated, reported and kept friendly.',      tone: 'purple', icon: 'shield' },
+  { title: 'Easy Exit',       text: 'Leave or skip a chat whenever you like.',     tone: 'pink',   icon: 'exit' },
+  { title: 'Available Anytime', text: 'Servers are online 24/7, wherever you are.', tone: 'purple', icon: 'clock', wide: true }
+];
+
+const CHAT_MESSAGES = [
+  { from: 'them', text: 'Hello! 👋',          time: '10:30 AM' },
+  { from: 'you',  text: 'Hi there! 😊',       time: '10:30 AM' },
+  { from: 'them', text: 'Where are you from?', time: '10:31 AM' },
+  { from: 'you',  text: "I'm from India 🇮🇳",  time: '10:31 AM' },
+  { from: 'them', text: "That's awesome!",     time: '10:32 AM' }
+];
+
+const TESTIMONIALS = [
+  { quote: "I've met some amazing people here. It's fun, safe, and very easy to use.", name: 'Anjali', country: 'India',  initial: 'A', grad: 'linear-gradient(135deg,#FF4FA3,#D946EF)' },
+  { quote: 'The matching feels instant, and I like that I can leave the chat at any time.', name: 'James', country: 'USA', initial: 'J', grad: 'linear-gradient(135deg,#8B5CF6,#D946EF)' },
+  { quote: "The interface is simple and doesn't force me to create a profile.", name: 'Mei', country: 'Japan', initial: 'M', grad: 'linear-gradient(135deg,#A78BFA,#8B5CF6)' }
+];
+
+const FAQS = [
+  { q: 'Is PerfectChat really anonymous?', a: 'Yes. You only share a nickname, and it disappears when the chat ends. We never ask for your real name, email or phone number.' },
+  { q: 'Do I need to create an account?',  a: 'No account is needed. Pick a chat mode, type a nickname and you are matched straight away.' },
+  { q: 'Can I leave a chat at any time?',  a: 'Always. Use the exit or skip control at any point and you are instantly disconnected from that person.' },
+  { q: 'Is video chat safe?',              a: 'Video chats are peer-to-peer and never recorded. You can block or report anyone in one tap, and our moderation team reviews every report.' },
+  { q: 'How does matching work?',          a: 'When you start a chat we place you in a live queue and pair you with the next available person in your chosen mode, usually within three seconds.' }
+];
+
+/* =========================================================
+   ICON LIBRARY (inline SVG paths, no emoji as icons)
+========================================================= */
+const ICONS = {
+  chat:  '<path d="M4 6.8A2.8 2.8 0 0 1 6.8 4h10.4A2.8 2.8 0 0 1 20 6.8v6.4a2.8 2.8 0 0 1-2.8 2.8H10l-4.2 3.2A.5.5 0 0 1 5 18.8V16a2.8 2.8 0 0 1-1-2.8V6.8Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
+  user:  '<circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.7"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
+  bolt:  '<path d="M13 3.5 5.5 13H10l-1 7.5L18.5 11H14l-1-7.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
+  heart: '<path d="M12 20s-7-4.3-7-9a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 4.7-7 9-7 9Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
+  lock:  '<rect x="4.5" y="10" width="15" height="9.5" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M8.2 10V7.6a3.8 3.8 0 1 1 7.6 0V10" stroke="currentColor" stroke-width="1.7"/>',
+  shield:'<path d="M12 3.5 5 6v5.5c0 4.3 2.9 7.4 7 8.9 4.1-1.5 7-4.6 7-8.9V6l-7-2.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
+  exit:  '<path d="M14 4h3.5A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5H14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M10 8 6 12l4 4M6.4 12H15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
+  clock: '<circle cx="12" cy="12" r="8.4" stroke="currentColor" stroke-width="1.7"/><path d="M12 7.6V12l3 1.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>'
+};
+const icon = (name) => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">${ICONS[name] || ''}</svg>`;
+const avatarHTML = (p, cls = 'w-10 h-10 text-sm') =>
+  `<span class="avatar ${cls}" style="background-image:${p.grad}" aria-hidden="true">${p.initial}</span>`;
+
+/* =========================================================
+   RENDER: build repeated markup from the data above
+========================================================= */
+function renderOnlineSection() {
+  const chips = document.getElementById('country-chips');
+  chips.innerHTML =
+    SITE_DATA.countries.map(c => `<li class="chip"><span aria-hidden="true">${c.flag}</span>${c.name}</li>`).join('') +
+    `<li class="chip !bg-softpurple !border-transparent text-brandpurple">+${SITE_DATA.moreCountries}</li>`;
+
+  const list = document.getElementById('online-avatars');
+  list.innerHTML = SITE_DATA.people.map((p, i) => `
+    <li class="online-avatar relative ${i ? '-ml-3' : ''}">
+      ${avatarHTML(p, 'avatar-ring w-11 h-11 text-sm')}
+      <span class="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-[#22C55E] border-2 border-white" aria-hidden="true"></span>
+      <span class="sr-only">Person online</span>
+    </li>`).join('');
+
+  // Same demo number is used in the hero and in this section
+  document.querySelectorAll('[data-online-count]').forEach(el => {
+    el.textContent = SITE_DATA.onlineCount.toLocaleString('en-US');
+  });
+}
+
+function renderSteps() {
+  document.getElementById('steps').innerHTML = STEPS.map((s, i) => `
+    <li class="step-card card p-5 text-center md:text-left relative">
+      <span class="icon-tile ${s.tone === 'pink' ? 'tile-pink' : 'tile-purple'} !w-12 !h-12 !rounded-2xl mx-auto md:mx-0">${icon(s.icon)}</span>
+      <span class="mt-4 inline-flex items-center justify-center w-6 h-6 rounded-full grad text-white text-[12px] font-bold" aria-hidden="true">${i + 1}</span>
+      <h3 class="mt-2 font-extrabold text-ink text-[16px]">${s.title}</h3>
+      <p class="mt-1.5 text-[14px] leading-snug">${s.text}</p>
+    </li>`).join('');
+}
+
+function renderBento() {
+  document.getElementById('bento').innerHTML = FEATURES.map(f => `
+    <article class="bento-card card p-5 sm:p-6 ${f.wide ? 'lg:col-span-2' : ''}">
+      <span class="icon-tile ${f.tone === 'pink' ? 'tile-pink' : 'tile-purple'}">${icon(f.icon)}</span>
+      <h3 class="mt-3.5 font-extrabold text-ink text-[16px]">${f.title}</h3>
+      <p class="mt-1.5 text-[14px] leading-snug">${f.text}</p>
+    </article>`).join('');
+}
+
+function renderChatPreview() {
+  document.getElementById('chat-thread').innerHTML = CHAT_MESSAGES.map(m => {
+    const mine = m.from === 'you';
+    return `
+      <div class="chat-msg flex ${mine ? 'justify-end' : 'justify-start'}">
+        <div class="max-w-[78%]">
+          <div class="${mine ? 'grad text-white rounded-br-md' : 'bg-softpurple text-ink rounded-bl-md'} rounded-2xl px-3.5 py-2.5 text-[14px] leading-snug">${m.text}</div>
+          <p class="text-[11px] mt-1 ${mine ? 'text-right' : ''}">${m.time}</p>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderTestimonials() {
+  const star = '<svg width="15" height="15" viewBox="0 0 24 24" fill="#FBBF24" aria-hidden="true"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9L12 3.5Z"/></svg>';
+  document.getElementById('testimonials-track').innerHTML = TESTIMONIALS.map(t => `
+    <figure class="testimonial-card card p-5 sm:p-6">
+      <div class="flex gap-1" role="img" aria-label="Rated 5 out of 5 stars">${star.repeat(5)}</div>
+      <blockquote class="mt-3.5 text-[15px] leading-relaxed text-ink">“${t.quote}”</blockquote>
+      <figcaption class="mt-5 flex items-center gap-3">
+        ${avatarHTML(t, 'w-10 h-10 text-sm')}
+        <span class="text-[14px] font-semibold text-ink">${t.name}<span class="block text-[13px] font-normal text-body">${t.country}</span></span>
+      </figcaption>
+    </figure>`).join('');
+
+  // Pagination dots for the mobile slider
+  const dots = document.getElementById('testimonial-dots');
+  dots.innerHTML = TESTIMONIALS.map((_, i) =>
+    `<button type="button" role="tab" aria-label="Show testimonial ${i + 1}" aria-selected="${i === 0}" data-dot-index="${i}"
+       class="w-2.5 h-2.5 rounded-full transition-all ${i === 0 ? 'bg-brandpink w-6' : 'bg-line'}"></button>`).join('');
+}
+
+function renderFAQ() {
+  document.getElementById('faq-list').innerHTML = FAQS.map((f, i) => `
+    <div class="faq-item card overflow-hidden" data-open="false">
+      <h3>
+        <button type="button" id="faq-btn-${i}" class="w-full flex items-center justify-between gap-4 text-left px-5 py-4 min-h-[56px] font-bold text-ink text-[15px]"
+                aria-expanded="false" aria-controls="faq-panel-${i}">
+          <span>${f.q}</span>
+          <span class="faq-plus icon-tile tile-pink !w-8 !h-8 !rounded-full" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </span>
+        </button>
+      </h3>
+      <div class="faq-panel" id="faq-panel-${i}" role="region" aria-labelledby="faq-btn-${i}">
+        <p class="px-5 pb-5 text-[15px] leading-relaxed">${f.a}</p>
+      </div>
+    </div>`).join('');
+}
+
+/* =========================================================
+   THEME TOGGLE
+========================================================= */
+function initTheme() {
+  const btn = document.getElementById('theme-toggle');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const apply = (dark) => {
+    document.documentElement.classList.toggle('dark', dark);
+    btn.setAttribute('aria-pressed', String(dark));
+    btn.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
+    btn.querySelector('.icon-moon').classList.toggle('hidden', dark);
+    btn.querySelector('.icon-sun').classList.toggle('hidden', !dark);
+  };
+  apply(prefersDark);
+  btn.addEventListener('click', () => apply(!document.documentElement.classList.contains('dark')));
+}
+
+/* =========================================================
+   NAVBAR: scroll state + mobile menu
+========================================================= */
+function initNavbar() {
+  const nav = document.getElementById('navbar');
+  const toggle = document.getElementById('menu-toggle');
+  const menu = document.getElementById('mobile-menu');
+
+  const onScroll = () => {
+    const scrolled = window.scrollY > 8;
+    nav.classList.toggle('glass', scrolled);
+    nav.classList.toggle('shadow-card', scrolled);
+    nav.classList.toggle('border-b', scrolled);
+    nav.classList.toggle('border-line', scrolled);
+  };
+  onScroll();
+  window.addEventListener('scroll', onScroll, { passive: true });
+
+  const setMenu = (open) => {
+    menu.classList.toggle('hidden', !open);
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+  };
+  toggle.addEventListener('click', () => setMenu(menu.classList.contains('hidden')));
+  // Event delegation: any link inside the panel closes it
+  menu.addEventListener('click', (e) => { if (e.target.closest('a')) setMenu(false); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !menu.classList.contains('hidden')) { setMenu(false); toggle.focus(); }
+  });
+}
+
+/* =========================================================
+   CHAT MODE SELECTION + NICKNAME VALIDATION
+========================================================= */
+let currentMode = 'text';
+
+function setMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('[data-mode-card]').forEach(card => {
+    const isActive = card.dataset.modeCard === mode;
+    const isVideo = card.dataset.modeCard === 'video';
+    const accent = isVideo ? 'purple' : 'pink';
+    card.querySelector('input').checked = isActive;
+
+    card.classList.toggle('border-brandpink', isActive && accent === 'pink');
+    card.classList.toggle('bg-softpink', isActive && accent === 'pink');
+    card.classList.toggle('border-brandpurple', isActive && accent === 'purple');
+    card.classList.toggle('bg-softpurple', isActive && accent === 'purple');
+    card.classList.toggle('border-line', !isActive);
+    card.classList.toggle('bg-surface', !isActive);
+
+    const ring = card.querySelector('[data-radio]');
+    ring.classList.toggle('border-brandpink', isActive && accent === 'pink');
+    ring.classList.toggle('border-brandpurple', isActive && accent === 'purple');
+    ring.classList.toggle('border-line', !isActive);
+    card.querySelector('[data-dot]').classList.toggle('opacity-0', !isActive);
+  });
+
+  const label = document.getElementById('start-btn-label');
+  label.textContent = mode === 'video' ? 'Start Video Chat' : 'Start Text Chat';
+}
+
+function initChatForm() {
+  const form = document.getElementById('chat-form');
+  const input = document.getElementById('nickname');
+  const error = document.getElementById('nickname-error');
+  const status = document.getElementById('form-status');
+
+  // Event delegation for both mode cards (click + keyboard through the radio)
+  document.querySelector('#chat-form fieldset').addEventListener('change', (e) => {
+    if (e.target.name === 'chat-mode') setMode(e.target.value);
+  });
+
+  const showError = (msg) => {
+    error.textContent = msg;
+    error.classList.remove('hidden');
+    input.setAttribute('aria-invalid', 'true');
+    input.classList.add('border-[#E11D6B]');
+    status.textContent = msg;
+  };
+  const clearError = () => {
+    error.classList.add('hidden');
+    input.removeAttribute('aria-invalid');
+    input.classList.remove('border-[#E11D6B]');
+  };
+
+  input.addEventListener('input', clearError);
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();                       // never reload the page
+    const name = input.value.trim().replace(/\s+/g, ' ');
+    input.value = name;
+
+    if (!name)            return showError('Enter a nickname to start chatting.');
+    if (name.length < 2)  return showError('Your nickname needs at least 2 characters.');
+    if (name.length > 20) return showError('Keep your nickname under 20 characters.');
+
+    clearError();
+    startMatching(name, currentMode);
+  });
+
+  // Buttons elsewhere on the page jump back to the form with the right mode selected
+  document.addEventListener('click', (e) => {
+    const trigger = e.target.closest('[data-cta-mode]');
+    if (!trigger) return;
+    e.preventDefault();
+    setMode(trigger.dataset.ctaMode);
+    document.getElementById('hero').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(() => input.focus({ preventScroll: true }), 600);
+  });
+}
+
+/* =========================================================
+   MATCHING OVERLAY (front-end demo, ~2.5s fake progress)
+========================================================= */
+let matchTimers = [];
+
+function startMatching(name, mode) {
+  const overlay  = document.getElementById('match-overlay');
+  const title    = document.getElementById('match-title');
+  const sub      = document.getElementById('match-sub');
+  const bar      = document.getElementById('match-progress');
+  const spinner  = document.getElementById('match-spinner');
+  const success  = document.getElementById('match-success');
+  const status   = document.getElementById('match-status');
+  const cancel   = document.getElementById('match-cancel');
+
+  overlay.classList.remove('hidden');
+  overlay.classList.add('flex');
+  spinner.classList.remove('hidden');
+  success.classList.add('hidden');
+  title.textContent = 'Finding someone for you…';
+  sub.textContent = `Matching you with a random person for ${mode === 'video' ? 'video' : 'text'} chat, ${name}.`;
+  status.textContent = 'Searching for a match.';
+  bar.style.width = '0%';
+  cancel.focus();
+
+  // Fake progress in steps so it feels like a real queue
+  [[250, 22], [700, 45], [1300, 68], [1900, 86], [2400, 100]].forEach(([ms, pct]) => {
+    matchTimers.push(setTimeout(() => { bar.style.width = pct + '%'; }, ms));
+  });
+
+  matchTimers.push(setTimeout(() => {
+    spinner.classList.add('hidden');
+    success.classList.remove('hidden');
+    title.textContent = 'Match Found!';
+    sub.textContent = `Say hello — you're connected with someone new.`;
+    status.textContent = 'Match found. Connecting you now.';
+    cancel.textContent = 'Close';
+  }, 2500));
+}
+
+function closeMatching() {
+  matchTimers.forEach(clearTimeout);
+  matchTimers = [];
+  const overlay = document.getElementById('match-overlay');
+  overlay.classList.add('hidden');
+  overlay.classList.remove('flex');
+  document.getElementById('match-cancel').textContent = 'Cancel';
+  document.getElementById('nickname').focus({ preventScroll: true });
+}
+
+function initMatchingOverlay() {
+  document.getElementById('match-cancel').addEventListener('click', closeMatching);
+  document.querySelector('[data-overlay-backdrop]').addEventListener('click', closeMatching);
+  document.addEventListener('keydown', (e) => {
+    const overlay = document.getElementById('match-overlay');
+    if (e.key === 'Escape' && !overlay.classList.contains('hidden')) closeMatching();
+  });
+}
+
+/* =========================================================
+   FAQ ACCORDION (one open at a time, animated height)
+========================================================= */
+function initFAQ() {
+  const list = document.getElementById('faq-list');
+
+  list.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[aria-controls]');
+    if (!btn) return;
+    const item = btn.closest('.faq-item');
+    const panel = document.getElementById(btn.getAttribute('aria-controls'));
+    const isOpen = item.dataset.open === 'true';
+
+    // Close every other item first
+    list.querySelectorAll('.faq-item').forEach(other => {
+      if (other === item) return;
+      other.dataset.open = 'false';
+      other.querySelector('button').setAttribute('aria-expanded', 'false');
+      other.querySelector('.faq-panel').style.height = '0px';
+    });
+
+    if (isOpen) {
+      panel.style.height = '0px';
+      item.dataset.open = 'false';
+      btn.setAttribute('aria-expanded', 'false');
+    } else {
+      panel.style.height = panel.scrollHeight + 'px';
+      item.dataset.open = 'true';
+      btn.setAttribute('aria-expanded', 'true');
+    }
+  });
+
+  // Keep an open panel correctly sized when the viewport changes
+  window.addEventListener('resize', () => {
+    const open = list.querySelector('.faq-item[data-open="true"] .faq-panel');
+    if (open) open.style.height = open.scrollHeight + 'px';
+  });
+}
+
+/* =========================================================
+   TESTIMONIAL SLIDER (mobile only, vanilla scroll-snap)
+========================================================= */
+function initTestimonialSlider() {
+  const track = document.getElementById('testimonials-track');
+  const dots = document.getElementById('testimonial-dots');
+  if (!track || !dots) return;
+
+  const setActive = (index) => {
+    dots.querySelectorAll('button').forEach((d, i) => {
+      const active = i === index;
+      d.setAttribute('aria-selected', String(active));
+      d.classList.toggle('bg-brandpink', active);
+      d.classList.toggle('w-6', active);
+      d.classList.toggle('bg-line', !active);
+    });
+  };
+
+  dots.addEventListener('click', (e) => {
+    const dot = e.target.closest('[data-dot-index]');
+    if (!dot) return;
+    const card = track.children[Number(dot.dataset.dotIndex)];
+    track.scrollTo({ left: card.offsetLeft - track.offsetLeft, behavior: 'smooth' });
+  });
+
+  let raf;
+  track.addEventListener('scroll', () => {
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      const center = track.scrollLeft + track.clientWidth / 2;
+      let closest = 0, min = Infinity;
+      [...track.children].forEach((card, i) => {
+        const cardCenter = card.offsetLeft - track.offsetLeft + card.clientWidth / 2;
+        const dist = Math.abs(cardCenter - center);
+        if (dist < min) { min = dist; closest = i; }
+      });
+      setActive(closest);
+    });
+  }, { passive: true });
+}
+
+/* =========================================================
+   GSAP ANIMATIONS
+========================================================= */
+function initAnimations() {
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const isSmall = window.innerWidth < 768;
+
+  if (typeof gsap === 'undefined') return;      // page still works without GSAP
+  gsap.registerPlugin(ScrollTrigger);
+
+  // Counters run even with reduced motion, they just land instantly
+  const runCounters = (instant) => {
+    document.querySelectorAll('[data-counter]').forEach(el => {
+      const to = parseFloat(el.dataset.to);
+      const decimals = parseInt(el.dataset.decimals || '0', 10);
+      const suffix = el.dataset.suffix || '';
+      if (instant) { el.textContent = to.toFixed(decimals) + suffix; return; }
+      const obj = { v: 0 };
+      gsap.to(obj, {
+        v: to, duration: 1.6, ease: 'power2.out',
+        onUpdate: () => { el.textContent = obj.v.toFixed(decimals) + suffix; }
+      });
+    });
+  };
+
+  if (reduced) {
+    runCounters(true);
+    revealChatMessages(true);
+    return;                                    // no motion beyond this point
+  }
+
+  const ease = 'power3.out';
+
+  // 1. Navbar entrance
+  gsap.from('#navbar', { y: -24, opacity: 0, duration: 0.8, ease });
+
+  // 2. Hero heading reveal, line by line
+  gsap.from('.hero-line', { y: 28, opacity: 0, duration: 0.9, stagger: 0.12, ease, delay: 0.1 });
+
+  // 3. Hero badge, paragraph and chat form fade up
+  gsap.from('[data-hero-badge]', { y: 14, opacity: 0, duration: 0.6, ease, delay: 0.05 });
+  gsap.from('[data-hero-p]', { y: 16, opacity: 0, duration: 0.7, ease, delay: 0.35 });
+  gsap.from('#chat-form-card', { y: 30, opacity: 0, duration: 0.9, ease, delay: 0.25 });
+
+  // 6. Trust badges stagger in
+  gsap.from('.trust-badge', { y: 12, opacity: 0, duration: 0.5, stagger: 0.08, ease, delay: 0.5 });
+
+  // 4 + 5. Ambient floating avatars and chat bubbles (skipped on small screens)
+  if (!isSmall) {
+    gsap.utils.toArray('.float-avatar').forEach((el, i) => {
+      gsap.to(el, { y: i % 2 ? 12 : -12, duration: 2.6 + i * 0.25, ease: 'sine.inOut', repeat: -1, yoyo: true });
+    });
+    gsap.utils.toArray('.float-bubble').forEach((el, i) => {
+      gsap.to(el, { y: i % 2 ? -8 : 8, duration: 2.2 + i * 0.2, ease: 'sine.inOut', repeat: -1, yoyo: true });
+    });
+  }
+
+  const reveal = (targets, vars = {}) => {
+    gsap.utils.toArray(targets).forEach(el => {
+      gsap.from(el, {
+        y: 26, opacity: 0, duration: 0.8, ease,
+        scrollTrigger: { trigger: el, start: 'top 88%', once: true },
+        ...vars
+      });
+    });
+  };
+
+  // Generic section reveals
+  reveal('[data-reveal]');
+  reveal('.h2', { y: 18, duration: 0.7 });
+
+  // 7. Online avatars stagger
+  gsap.from('.online-avatar', {
+    opacity: 0, scale: 0.85, duration: 0.5, stagger: 0.06, ease: 'back.out(1.6)',
+    scrollTrigger: { trigger: '#online-avatars', start: 'top 90%', once: true }
+  });
+
+  // 8. How-it-works cards reveal in sequence
+  gsap.from('.step-card', {
+    y: 26, opacity: 0, duration: 0.7, stagger: 0.12, ease,
+    scrollTrigger: { trigger: '#steps', start: 'top 85%', once: true }
+  });
+
+  // 9. Bento cards fade and scale from 0.96
+  gsap.from('.bento-card', {
+    opacity: 0, scale: 0.96, y: 18, duration: 0.7, stagger: 0.07, ease,
+    scrollTrigger: { trigger: '#bento', start: 'top 85%', once: true }
+  });
+
+  // 10. Chat messages appear one by one
+  revealChatMessages(false);
+
+  // 11. Statistics count up
+  ScrollTrigger.create({
+    trigger: '#stats-card', start: 'top 85%', once: true,
+    onEnter: () => { runCounters(false); gsap.from('.stat', { y: 18, opacity: 0, duration: 0.6, stagger: 0.1, ease }); }
+  });
+
+  // 12. Safety shield floats gently + list items reveal
+  gsap.to('#shield', { y: -12, duration: 3, ease: 'sine.inOut', repeat: -1, yoyo: true });
+  gsap.from('.safety-item', {
+    x: -18, opacity: 0, duration: 0.6, stagger: 0.1, ease,
+    scrollTrigger: { trigger: '#safety', start: 'top 78%', once: true }
+  });
+
+  // 13. Testimonials slide into view
+  gsap.from('.testimonial-card', {
+    y: 28, opacity: 0, duration: 0.7, stagger: 0.12, ease,
+    scrollTrigger: { trigger: '#testimonials-track', start: 'top 88%', once: true }
+  });
+
+  // 14. FAQ items fade upward
+  gsap.from('.faq-item', {
+    y: 18, opacity: 0, duration: 0.6, stagger: 0.08, ease,
+    scrollTrigger: { trigger: '#faq-list', start: 'top 88%', once: true }
+  });
+
+  // 15. Final CTA scales slightly into view
+  gsap.from('#cta-card', {
+    scale: 0.96, opacity: 0, duration: 0.8, ease,
+    scrollTrigger: { trigger: '#cta-card', start: 'top 88%', once: true }
+  });
+}
+
+// Chat preview messages animate sequentially when scrolled into view
+function revealChatMessages(instant) {
+  const msgs = gsap.utils.toArray('.chat-msg');
+  const typing = document.getElementById('chat-typing');
+  if (instant) { gsap.set(msgs, { opacity: 1, y: 0 }); return; }
+
+  gsap.set(msgs, { opacity: 0, y: 14 });
+  gsap.set(typing, { opacity: 0 });
+
+  ScrollTrigger.create({
+    trigger: '#chat-thread', start: 'top 82%', once: true,
+    onEnter: () => {
+      const tl = gsap.timeline();
+      msgs.forEach(m => tl.to(m, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, '+=0.25'));
+      tl.to(typing, { opacity: 1, duration: 0.4 }, '+=0.3');
+    }
+  });
+}
+
+/* =========================================================
+   BOOT
+========================================================= */
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('year').textContent = new Date().getFullYear();
+
+  renderOnlineSection();
+  renderSteps();
+  renderBento();
+  renderChatPreview();
+  renderTestimonials();
+  renderFAQ();
+
+  initTheme();
+  initNavbar();
+  setMode('text');          
+  initChatForm();
+  initMatchingOverlay();
+  initFAQ();
+  initTestimonialSlider();
+  initAnimations();
+});
+</script>
+</body>
+</html>
