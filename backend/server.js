@@ -130,6 +130,7 @@ const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 10000)
 const MAX_TEXT_LENGTH = Number(process.env.MAX_TEXT_LENGTH || 2000)
 const MAX_BUFFERED_BYTES = Number(process.env.MAX_BUFFERED_BYTES || 1024 * 1024)
 const MAX_CONNECTIONS = Number(process.env.MAX_CONNECTIONS || 10000)
+const RECENT_PARTNER_COOLDOWN_MS = Number(process.env.RECENT_PARTNER_COOLDOWN_MS || 10 * 60 * 1000)
 const DEBUG_CONNECTIONS = process.env.DEBUG_CONNECTIONS === "true"
 
 function debugLog(...args) {
@@ -262,6 +263,23 @@ function createMatchId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+function rememberRecentPartner(user, partnerUser) {
+  if (!user || !partnerUser) return
+  if (!user.recentPartners) user.recentPartners = new Map()
+  user.recentPartners.set(partnerUser.connectionId, Date.now() + RECENT_PARTNER_COOLDOWN_MS)
+}
+
+function wasRecentlyMatched(user, candidate) {
+  if (!user?.recentPartners || !candidate) return false
+  const expiresAt = user.recentPartners.get(candidate.connectionId)
+  if (!expiresAt) return false
+  if (expiresAt <= Date.now()) {
+    user.recentPartners.delete(candidate.connectionId)
+    return false
+  }
+  return true
+}
+
 function findPartner(client, chatType, isRetry = false) {
   if (!client || client.readyState !== WebSocket.OPEN) {
     return
@@ -293,6 +311,8 @@ function findPartner(client, chatType, isRetry = false) {
       u.ws !== client &&
       !u.partner &&
       u.ws.readyState === WebSocket.OPEN &&
+      !wasRecentlyMatched(user, u) &&
+      !wasRecentlyMatched(u, user) &&
       (connectionHealth.get(u.ws)?.failures ?? 0) <= 2, // Avoid unhealthy connections
   )
 
@@ -385,6 +405,11 @@ function disconnectPartnership(ws, chatType, reason = "disconnect") {
     const partnerUser = getUserBySocket(partnerSocket, chatType)
 
     if (partnerUser) {
+      if (reason === "skip") {
+        rememberRecentPartner(user, partnerUser)
+        rememberRecentPartner(partnerUser, user)
+      }
+
       // Notify partner with specific reason
       sendToClient(partnerSocket, {
         type: "partnerDisconnected",
@@ -514,6 +539,7 @@ wss.on("connection", (ws) => {
             chatType,
             connectionId: ws.connectionId,
             joinedAt: Date.now(),
+            recentPartners: new Map(),
           }
 
           usersList.set(ws.connectionId, newUser)
