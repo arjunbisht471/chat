@@ -43,20 +43,27 @@ export function getRtcConfiguration() {
         ]),
   ]
 
-  const turnUrl = import.meta.env.VITE_TURN_URL
+  const turnUrls = (import.meta.env.VITE_TURN_URLS || import.meta.env.VITE_TURN_URL || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
   const turnUsername = import.meta.env.VITE_TURN_USERNAME
   const turnCredential = import.meta.env.VITE_TURN_CREDENTIAL
 
-  if (turnUrl && turnUsername && turnCredential) {
+  if (turnUrls.length > 0 && turnUsername && turnCredential) {
     iceServers.push({
-      urls: turnUrl,
+      urls: turnUrls,
       username: turnUsername,
       credential: turnCredential,
     })
+  } else if (import.meta.env.PROD) {
+    console.warn("[WebRTC] TURN is not configured; calls may fail across restrictive networks.")
   }
 
   return {
     iceServers,
     iceCandidatePoolSize: 10,
+    iceTransportPolicy: import.meta.env.VITE_ICE_TRANSPORT_POLICY === "relay" ? "relay" : "all",
+    bundlePolicy: "max-bundle",
   }
 }

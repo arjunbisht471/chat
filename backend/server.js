@@ -126,11 +126,12 @@ const videoWaitingUsers = []
 const textWaitingUsers = []
 
 const MAX_MESSAGES_PER_WINDOW = Number(process.env.MAX_MESSAGES_PER_WINDOW || 80)
+const MAX_ICE_CANDIDATES_PER_WINDOW = Number(process.env.MAX_ICE_CANDIDATES_PER_WINDOW || 500)
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 10000)
 const MAX_TEXT_LENGTH = Number(process.env.MAX_TEXT_LENGTH || 2000)
 const MAX_BUFFERED_BYTES = Number(process.env.MAX_BUFFERED_BYTES || 1024 * 1024)
 const MAX_CONNECTIONS = Number(process.env.MAX_CONNECTIONS || 10000)
-const RECENT_PARTNER_COOLDOWN_MS = Number(process.env.RECENT_PARTNER_COOLDOWN_MS || 10 * 60 * 1000)
+const RECENT_PARTNER_COOLDOWN_MS = Number(process.env.RECENT_PARTNER_COOLDOWN_MS || 15 * 1000)
 const DEBUG_CONNECTIONS = process.env.DEBUG_CONNECTIONS === "true"
 
 function debugLog(...args) {
@@ -154,8 +155,20 @@ function getUserBySocket(ws, chatType) {
   return user && user.chatType === chatType ? user : null
 }
 
-function isRateLimited(ws) {
+function isRateLimited(ws, messageType) {
+  if (messageType === "ping") return false
+
   const now = Date.now()
+  if (messageType === "iceCandidate") {
+    if (!ws.iceRateLimit || now - ws.iceRateLimit.startedAt >= RATE_LIMIT_WINDOW_MS) {
+      ws.iceRateLimit = { startedAt: now, count: 1 }
+      return false
+    }
+
+    ws.iceRateLimit.count += 1
+    return ws.iceRateLimit.count > MAX_ICE_CANDIDATES_PER_WINDOW
+  }
+
   if (!ws.rateLimit || now - ws.rateLimit.startedAt >= RATE_LIMIT_WINDOW_MS) {
     ws.rateLimit = { startedAt: now, count: 1 }
     return false
@@ -280,6 +293,12 @@ function wasRecentlyMatched(user, candidate) {
   return true
 }
 
+function recentPairBlockedUntil(user, candidate) {
+  const userExpiry = user?.recentPartners?.get(candidate?.connectionId) || 0
+  const candidateExpiry = candidate?.recentPartners?.get(user?.connectionId) || 0
+  return Math.max(userExpiry, candidateExpiry)
+}
+
 function findPartner(client, chatType, isRetry = false) {
   if (!client || client.readyState !== WebSocket.OPEN) {
     return
@@ -391,6 +410,19 @@ function findPartner(client, chatType, isRetry = false) {
       message: `Waiting for a ${chatType} partner... (${waitingList.length} users waiting)`,
       waitingCount: waitingList.length,
     })
+
+    // If the only available sockets are recent partners, retry automatically
+    // when the shortest cooldown expires. This prevents small user pools from
+    // getting stuck forever while still giving a different user first priority.
+    const blockedUntil = waitingList
+      .filter((candidate) => candidate.ws !== client && !candidate.partner && candidate.ws.readyState === WebSocket.OPEN)
+      .map((candidate) => recentPairBlockedUntil(user, candidate))
+      .filter((expiresAt) => expiresAt > Date.now())
+      .sort((a, b) => a - b)[0]
+
+    if (blockedUntil) {
+      scheduleRematch(client, chatType, Math.max(250, blockedUntil - Date.now() + 100))
+    }
   }
 }
 
@@ -486,12 +518,12 @@ wss.on("connection", (ws) => {
 
   ws.on("message", async (message) => {
     try {
-      if (isRateLimited(ws)) {
+      const data = JSON.parse(message)
+
+      if (isRateLimited(ws, data.type)) {
         sendToClient(ws, { type: "error", message: "Too many requests. Please slow down." })
         return
       }
-
-      const data = JSON.parse(message)
       console.log(`📨 Received ${data.type} message from ${ws.connectionId}`)
 
       // Update connection health on any message
@@ -584,6 +616,10 @@ wss.on("connection", (ws) => {
           if (ws.chatType !== "video") return
 
           const offerUser = getUserBySocket(ws, "video")
+          if (!offerUser || !data.matchId || data.matchId !== offerUser.matchId || !data.offer?.type || !data.offer?.sdp) {
+            handleError(ws, "Stale or invalid video offer")
+            return
+          }
           if (offerUser && offerUser.partner && offerUser.partner.readyState === WebSocket.OPEN) {
             console.log(`📞 Forwarding video offer from ${offerUser.username}`)
             const success = sendToClient(offerUser.partner, {
@@ -596,7 +632,7 @@ wss.on("connection", (ws) => {
 
             if (!success) {
               console.log("Failed to forward video offer, partner may be disconnected")
-              disconnectPartnership(ws, "video", "connection_lost")
+              disconnectPartnership(ws, ws.chatType, "connection_lost")
             }
           } else {
             console.log("No valid partner to forward video offer")
@@ -608,6 +644,10 @@ wss.on("connection", (ws) => {
           if (ws.chatType !== "video") return
 
           const answerUser = getUserBySocket(ws, "video")
+          if (!answerUser || !data.matchId || data.matchId !== answerUser.matchId || !data.answer?.type || !data.answer?.sdp) {
+            handleError(ws, "Stale or invalid video answer")
+            return
+          }
           if (answerUser && answerUser.partner && answerUser.partner.readyState === WebSocket.OPEN) {
             console.log(`✅ Forwarding video answer from ${answerUser.username}`)
             const success = sendToClient(answerUser.partner, {
@@ -620,7 +660,7 @@ wss.on("connection", (ws) => {
 
             if (!success) {
               console.log("Failed to forward video answer")
-              disconnectPartnership(ws, "video", "connection_lost")
+              disconnectPartnership(ws, ws.chatType, "connection_lost")
             }
           }
           break
@@ -629,6 +669,9 @@ wss.on("connection", (ws) => {
           if (ws.chatType !== "video") return
 
           const candidateUser = getUserBySocket(ws, "video")
+          if (!candidateUser || !data.matchId || data.matchId !== candidateUser.matchId || !data.candidate?.candidate) {
+            return
+          }
           if (candidateUser && candidateUser.partner && candidateUser.partner.readyState === WebSocket.OPEN) {
             console.log(`🧊 Forwarding ICE candidate from ${candidateUser.username}`)
             const success = sendToClient(candidateUser.partner, {

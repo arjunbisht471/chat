@@ -17,6 +17,8 @@ import chatLogo from "../assets/chat.png"
 import { getRtcConfiguration, getWebSocketUrl } from "../config"
 import "./VideoChat.css"
 
+void React
+
 const MEDIA_CONSTRAINTS = {
   video: {
     width: { ideal: 1280, max: 1920 },
@@ -29,6 +31,16 @@ const MEDIA_CONSTRAINTS = {
     autoGainControl: true,
   },
 }
+
+const rtcLog = (event, details = {}) => {
+  console.info(`[WebRTC] ${event}`, details)
+}
+
+const candidateSummary = (candidate) => ({
+  type: candidate?.type || "unknown",
+  protocol: candidate?.protocol || "unknown",
+  relayProtocol: candidate?.relayProtocol || null,
+})
 
 function VideoChat({ initialUsername = "", onBack = () => {} }) {
   const [username, setUsername] = useState(initialUsername)
@@ -57,6 +69,7 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
   const requestPartnerTimerRef = useRef(null)
   const toastTimerRef = useRef(null)
   const hasAutoStartedRef = useRef(false)
+  const iceDisconnectTimerRef = useRef(null)
 
   useEffect(() => {
     if (initialUsername) {
@@ -132,6 +145,11 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
     clearPartnerSearchTimer()
     queuedCandidatesRef.current = []
     hasRemoteDescriptionRef.current = false
+
+    if (iceDisconnectTimerRef.current) {
+      window.clearTimeout(iceDisconnectTimerRef.current)
+      iceDisconnectTimerRef.current = null
+    }
 
     if (peerConnectionRef.current) {
       peerConnectionRef.current.onicecandidate = null
@@ -227,12 +245,21 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
   }
 
   const createPeerConnection = (matchId) => {
-    const peerConnection = new RTCPeerConnection(getRtcConfiguration())
+    const rtcConfiguration = getRtcConfiguration()
+    rtcLog("creating peer connection", {
+      matchId,
+      iceTransportPolicy: rtcConfiguration.iceTransportPolicy,
+      iceServers: rtcConfiguration.iceServers.map((server) => ({ urls: server.urls })),
+    })
+    const peerConnection = new RTCPeerConnection(rtcConfiguration)
 
     peerConnection.onicecandidate = (event) => {
       if (!event.candidate || currentMatchIdRef.current !== matchId) {
+        if (!event.candidate) rtcLog("ICE gathering complete", { matchId })
         return
       }
+
+      rtcLog("local ICE candidate", { matchId, ...candidateSummary(event.candidate) })
 
       sendMessage({
         type: "iceCandidate",
@@ -246,26 +273,73 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
         return
       }
 
-      if (peerConnection.iceConnectionState === "checking") {
+      const iceState = peerConnection.iceConnectionState
+      rtcLog("iceConnectionState changed", { matchId, state: iceState })
+
+      if (iceState === "checking") {
         setConnectionState("connecting")
       }
 
-      if (peerConnection.iceConnectionState === "connected" || peerConnection.iceConnectionState === "completed") {
+      if (iceState === "connected" || iceState === "completed") {
+        if (iceDisconnectTimerRef.current) {
+          window.clearTimeout(iceDisconnectTimerRef.current)
+          iceDisconnectTimerRef.current = null
+        }
         setConnectionState("connected")
+        peerConnection.getStats().then((stats) => {
+          stats.forEach((report) => {
+            if (report.type === "candidate-pair" && report.state === "succeeded" && report.nominated) {
+              rtcLog("selected ICE candidate pair", {
+                matchId,
+                localCandidateId: report.localCandidateId,
+                remoteCandidateId: report.remoteCandidateId,
+                currentRoundTripTime: report.currentRoundTripTime,
+              })
+            }
+          })
+        }).catch((error) => console.warn("[WebRTC] Could not read ICE stats", error))
       }
 
-      if (peerConnection.iceConnectionState === "failed") {
-        if (typeof peerConnection.restartIce === "function") {
-          peerConnection.restartIce()
-        }
+      if (iceState === "disconnected" && !iceDisconnectTimerRef.current) {
+        rtcLog("ICE temporarily disconnected; waiting for recovery", { matchId })
+        iceDisconnectTimerRef.current = window.setTimeout(() => {
+          iceDisconnectTimerRef.current = null
+          if (peerConnection.iceConnectionState === "disconnected") {
+            console.warn("[WebRTC] ICE did not recover", { matchId })
+            moveToWaitingState("The video connection was interrupted. Finding someone new...")
+          }
+        }, 10000)
+      }
+
+      if (iceState === "failed") {
+        console.error("[WebRTC] ICE negotiation failed", { matchId })
         moveToWaitingState("The video connection failed. Finding someone new...")
       }
+    }
+
+    peerConnection.onicegatheringstatechange = () => {
+      rtcLog("iceGatheringState changed", { matchId, state: peerConnection.iceGatheringState })
+    }
+
+    peerConnection.onsignalingstatechange = () => {
+      rtcLog("signalingState changed", { matchId, state: peerConnection.signalingState })
+    }
+
+    peerConnection.onicecandidateerror = (event) => {
+      console.warn("[WebRTC] ICE candidate error", {
+        matchId,
+        errorCode: event.errorCode,
+        errorText: event.errorText,
+        url: event.url,
+      })
     }
 
     peerConnection.onconnectionstatechange = () => {
       if (currentMatchIdRef.current !== matchId) {
         return
       }
+
+      rtcLog("connectionState changed", { matchId, state: peerConnection.connectionState })
 
       if (peerConnection.connectionState === "connected") {
         setConnectionState("connected")
@@ -307,6 +381,7 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
 
     const pendingCandidates = [...queuedCandidatesRef.current]
     queuedCandidatesRef.current = []
+    rtcLog("flushing queued ICE candidates", { matchId, count: pendingCandidates.length })
 
     for (const candidate of pendingCandidates) {
       if (!peerConnectionRef.current || !peerConnectionRef.current.remoteDescription) {
@@ -316,7 +391,8 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
 
       try {
         await peerConnectionRef.current.addIceCandidate(candidate)
-      } catch {
+      } catch (error) {
+        console.warn("[WebRTC] Failed to add queued ICE candidate", { matchId, error: error.message })
         continue
       }
     }
@@ -386,6 +462,7 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
     }
 
     await peerConnection.setRemoteDescription(offer)
+    rtcLog("remote offer applied", { matchId })
     hasRemoteDescriptionRef.current = true
     await processQueuedCandidates(matchId)
 
@@ -409,6 +486,7 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
     }
 
     await peerConnectionRef.current.setRemoteDescription(answer)
+    rtcLog("remote answer applied", { matchId })
     hasRemoteDescriptionRef.current = true
     await processQueuedCandidates(matchId)
   }
@@ -423,11 +501,18 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
       hasRemoteDescriptionRef.current &&
       peerConnectionRef.current.signalingState !== "closed"
     ) {
-      await peerConnectionRef.current.addIceCandidate(candidate)
+      try {
+        await peerConnectionRef.current.addIceCandidate(candidate)
+        rtcLog("remote ICE candidate added", { matchId, ...candidateSummary(candidate) })
+      } catch (error) {
+        console.warn("[WebRTC] Failed to add remote ICE candidate", { matchId, error: error.message })
+      }
       return
     }
 
+    if (queuedCandidatesRef.current.length >= 256) queuedCandidatesRef.current.shift()
     queuedCandidatesRef.current.push(candidate)
+    rtcLog("remote ICE candidate queued", { matchId, queued: queuedCandidatesRef.current.length })
   }
 
   const ensureUsername = () => {
