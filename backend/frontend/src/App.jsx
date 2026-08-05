@@ -580,6 +580,8 @@ function App() {
 
   if (view === "text") {
     return <TextChat
+      darkMode={darkMode}
+      onToggleTheme={toggleDarkMode}
       ws={ws}
       username={username}
       setUsername={setUsername}
@@ -974,7 +976,7 @@ function App() {
   }
 
   if (view === "home") {
-    return <HomePage onReferenceStart={handleReferenceStart} />
+    return <HomePage onReferenceStart={handleReferenceStart} onThemeChange={setDarkMode} />
   }
 
   /* Legacy home markup kept temporarily for an easy visual rollback. */

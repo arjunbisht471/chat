@@ -6,10 +6,11 @@ import "./HomePage.css"
 
 void React
 
-export default function HomePage({ onReferenceStart }) {
+export default function HomePage({ onReferenceStart, onThemeChange }) {
   const frameRef = useRef(null)
   const [frameHeight, setFrameHeight] = useState(1200)
   const source = useMemo(() => {
+    const mobileInputFix = `<style>@media(max-width:768px){input,textarea,select{font-size:16px!important}}</style>`
     const bridge = `<script>(function(){
       function h(){parent.postMessage({source:'perfectchat-reference-ui',type:'height',height:Math.max(document.documentElement.scrollHeight,document.body.scrollHeight)},'*')}
       function updateLiveNumbers(){
@@ -38,6 +39,11 @@ export default function HomePage({ onReferenceStart }) {
       });
       addEventListener('load',function(){
         h();updateLiveNumbers();
+        parent.postMessage({source:'perfectchat-reference-ui',type:'theme-change',dark:document.documentElement.classList.contains('dark')},'*');
+        var themeButton=document.getElementById('theme-toggle');
+        if(themeButton)themeButton.addEventListener('click',function(){
+          setTimeout(function(){parent.postMessage({source:'perfectchat-reference-ui',type:'theme-change',dark:document.documentElement.classList.contains('dark')},'*')},0);
+        });
         document.addEventListener('click',function(event){
           var link=event.target.closest('a[href^="#"]');
           if(!link)return;
@@ -54,6 +60,7 @@ export default function HomePage({ onReferenceStart }) {
       setTimeout(h,1000);
     })();</script>`
     return referenceHtml
+      .replace("</head>", mobileInputFix + "</head>")
       .replace('<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>', "")
       .replace('<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>', "")
       .replace(/<span class="w-9 h-9 rounded-xl grad[\s\S]*?<\/span>/, `<img src="${chatLogo}" alt="PerfectChat logo" style="width:42px;height:42px;object-fit:contain">`)
@@ -69,6 +76,7 @@ export default function HomePage({ onReferenceStart }) {
       if (event.data.type === "scroll-to" && Number.isFinite(event.data.top)) {
         window.scrollTo({ top: Math.max(0, frameRef.current.offsetTop + event.data.top - 72), behavior: "smooth" })
       }
+      if (event.data.type === "theme-change") onThemeChange(Boolean(event.data.dark))
       if (event.data.type === "start-chat") onReferenceStart(event.data.name, event.data.mode)
       if (event.data.type === "scroll-to" && Number.isFinite(event.data.top)) {
         const frameTop = frameRef.current.getBoundingClientRect().top + window.scrollY
@@ -77,7 +85,7 @@ export default function HomePage({ onReferenceStart }) {
     }
     window.addEventListener("message", receive)
     return () => window.removeEventListener("message", receive)
-  }, [onReferenceStart])
+  }, [onReferenceStart, onThemeChange])
 
   return <iframe ref={frameRef} className="reference-ui-frame" title="PerfectChat" srcDoc={source} style={{ height: `${frameHeight}px` }} />
 }

@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 import React, { useState } from "react"
-import { FaCheck, FaHome, FaLock, FaPaperPlane, FaPowerOff, FaShieldAlt, FaTimes, FaUser } from "react-icons/fa"
+import { FaCheck, FaHome, FaLock, FaMoon, FaPaperPlane, FaPowerOff, FaShieldAlt, FaSun, FaTimes, FaUser } from "react-icons/fa"
 import chatLogo from "../assets/chat.png"
 import "./TextChat.css"
 
@@ -10,7 +10,7 @@ function NextMatchIcon() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
 }
 
-export default function TextChat({ ws, username, setUsername, partnerName, isConnected, isMatching, isTyping, connectionError, messages, draftMessage, onDraftChange, onSubmit, onSkip, onEnd, onStart, onRetry, messageInputRef, messagesAreaRef, messagesEndRef, onComposerFocus, formatTime }) {
+export default function TextChat({ darkMode, onToggleTheme, ws, username, setUsername, partnerName, isConnected, isMatching, isTyping, connectionError, messages, draftMessage, onDraftChange, onSubmit, onSkip, onEnd, onStart, onRetry, messageInputRef, messagesAreaRef, messagesEndRef, onComposerFocus, formatTime }) {
   const [showPrivacy, setShowPrivacy] = useState(true)
   const [showMatchModal, setShowMatchModal] = useState(false)
 
@@ -19,10 +19,10 @@ export default function TextChat({ ws, username, setUsername, partnerName, isCon
     onSkip()
   }
 
-  return <div className="tc-app">
+  return <div className={`tc-app ${darkMode ? "dark" : ""}`}>
     <header className="tc-header">
       <div className="tc-brand"><img src={chatLogo} alt="PerfectChat logo"/><div><h1>PerfectChat</h1><p>Anonymous conversations</p></div></div>
-      <div className="tc-header-actions"><button className="tc-home" onClick={onEnd} type="button"><FaHome/><span>Home</span></button><button className="tc-end" onClick={onEnd} type="button"><FaPowerOff/><span>End Chat</span></button></div>
+      <div className="tc-header-actions"><button className="tc-theme" onClick={onToggleTheme} title={darkMode ? "Light mode" : "Dark mode"} type="button">{darkMode ? <FaSun/> : <FaMoon/>}</button><button className="tc-home" onClick={onEnd} type="button"><FaHome/><span>Home</span></button><button className="tc-end" onClick={onEnd} type="button"><FaPowerOff/><span>End Chat</span></button></div>
     </header>
 
     <main className="tc-main"><section className="tc-container">
