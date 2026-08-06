@@ -155,6 +155,13 @@ const createMessage = (sender, content, type = "text") => ({
   createdAt: Date.now(),
 })
 
+// Backgrounded mobile tabs throttle timers and can leave a WebSocket reporting
+// OPEN long after the underlying connection is dead (screen lock, app switch,
+// Wi-Fi <-> mobile data handoff). These control how aggressively we recover.
+const MAX_RECONNECT_ATTEMPTS = 6
+const BASE_RECONNECT_DELAY_MS = 1000
+const STALE_CONNECTION_PROBE_TIMEOUT_MS = 5000
+
 function App() {
   const [view, setView] = useState("home")
   const [activeBlogId, setActiveBlogId] = useState(null)
@@ -166,6 +173,7 @@ function App() {
   const [isMatching, setIsMatching] = useState(false)
   const [isTyping, setIsTyping] = useState(false)
   const [connectionError, setConnectionError] = useState("")
+  const [isReconnecting, setIsReconnecting] = useState(false)
   const [darkMode, setDarkMode] = useState(false)
   const [ws, setWs] = useState(null)
   const [matchedAt, setMatchedAt] = useState(null)
@@ -184,6 +192,11 @@ function App() {
   const messagesEndRef = useRef(null)
   const messageInputRef = useRef(null)
   const messagesAreaRef = useRef(null)
+  const reconnectTimeoutRef = useRef(null)
+  const reconnectAttemptsRef = useRef(0)
+  const activeUsernameRef = useRef("")
+  const viewRef = useRef(view)
+  const visibilityPongTimeoutRef = useRef(null)
 
   const activeBlog = BLOGS.find((blog) => blog.id === activeBlogId) || null
   const isConnected = Boolean(partnerName)
@@ -211,6 +224,17 @@ function App() {
 
   const cleanupSocket = useCallback(() => {
     clearConnectionTimers()
+
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
+    }
+    if (visibilityPongTimeoutRef.current) {
+      clearTimeout(visibilityPongTimeoutRef.current)
+      visibilityPongTimeoutRef.current = null
+    }
+    reconnectAttemptsRef.current = 0
+    setIsReconnecting(false)
 
     const currentSocket = wsRef.current
     if (currentSocket) {
@@ -313,9 +337,15 @@ function App() {
           addSystemMessage(data.message || "Something went wrong.")
           break
 
+        case "pong":
+          if (visibilityPongTimeoutRef.current) {
+            clearTimeout(visibilityPongTimeoutRef.current)
+            visibilityPongTimeoutRef.current = null
+          }
+          break
+
         case "connectionEstablished":
         case "connectionReady":
-        case "pong":
           break
 
         default:
@@ -326,6 +356,86 @@ function App() {
     }
   }
 
+  const scheduleReconnect = useCallback(() => {
+    if (viewRef.current !== "text" || !activeUsernameRef.current) {
+      return
+    }
+
+    if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+      setIsReconnecting(false)
+      setConnectionError("Connection lost. Tap Start Anonymous Chat to reconnect.")
+      return
+    }
+
+    setIsReconnecting(true)
+    const attempt = reconnectAttemptsRef.current
+    reconnectAttemptsRef.current += 1
+    const delay = Math.min(BASE_RECONNECT_DELAY_MS * 2 ** attempt, 10000)
+
+    reconnectTimeoutRef.current = setTimeout(() => {
+      reconnectTimeoutRef.current = null
+      if (viewRef.current === "text" && activeUsernameRef.current) {
+        connectSocket(activeUsernameRef.current)
+      }
+    }, delay)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const connectSocket = useCallback(
+    (activeUsername) => {
+      const socket = new WebSocket(getWebSocketUrl())
+      wsRef.current = socket
+      setWs(socket)
+
+      socket.onopen = () => {
+        manualCloseRef.current = false
+        reconnectAttemptsRef.current = 0
+        setIsReconnecting(false)
+        setConnectionError("")
+        sendSocketMessage({
+          type: "setUsername",
+          username: activeUsername,
+          chatType: "text",
+        })
+
+        pingIntervalRef.current = setInterval(() => {
+          sendSocketMessage({ type: "ping" })
+        }, 25000)
+      }
+
+      socket.onmessage = handleIncomingMessage
+
+      socket.onerror = () => {
+        setConnectionError("Could not connect to chat server. Please try again.")
+      }
+
+      socket.onclose = (event) => {
+        clearConnectionTimers()
+        wsRef.current = null
+        setWs(null)
+
+        const wasManualClose = manualCloseRef.current
+        manualCloseRef.current = false
+
+        if (wasManualClose) {
+          setIsReconnecting(false)
+          return
+        }
+
+        setPartnerName("")
+        setIsTyping(false)
+        setIsMatching(false)
+        setMatchedAt(null)
+
+        if (event.code !== 1000) {
+          scheduleReconnect()
+        }
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scheduleReconnect],
+  )
+
   const startTextChat = (usernameOverride = username) => {
     const trimmedUsername = usernameOverride.trim()
     if (!trimmedUsername) {
@@ -334,6 +444,7 @@ function App() {
     }
 
     cleanupSocket()
+    activeUsernameRef.current = trimmedUsername
     setConnectionError("")
     setMessages([])
     setPartnerName("")
@@ -344,51 +455,7 @@ function App() {
     setShowChatMenu(false)
     setView("text")
 
-    const socket = new WebSocket(getWebSocketUrl())
-    wsRef.current = socket
-    setWs(socket)
-
-    socket.onopen = () => {
-      manualCloseRef.current = false
-      sendSocketMessage({
-        type: "setUsername",
-        username: trimmedUsername,
-        chatType: "text",
-      })
-
-      pingIntervalRef.current = setInterval(() => {
-        sendSocketMessage({ type: "ping" })
-      }, 25000)
-    }
-
-    
-    socket.onmessage = handleIncomingMessage
-
-    socket.onerror = () => {
-      setConnectionError("Could not connect to chat server. Please try again.")
-    }
-
-    socket.onclose = (event) => {
-      clearConnectionTimers()
-      wsRef.current = null
-      setWs(null)
-
-      const wasManualClose = manualCloseRef.current
-      manualCloseRef.current = false
-
-      if (wasManualClose) {
-        return
-      }
-
-      setPartnerName("")
-      setIsTyping(false)
-      setIsMatching(false)
-      setMatchedAt(null)
-
-      if (event.code !== 1000) {
-        setConnectionError("Connection closed. Please reconnect.")
-      }
-    }
+    connectSocket(trimmedUsername)
   }
 
   const handleStartChat = () => {
@@ -522,10 +589,69 @@ function App() {
   }
 
   useEffect(() => {
+    viewRef.current = view
+  }, [view])
+
+  useEffect(() => {
     return () => {
       cleanupSocket()
     }
   }, [cleanupSocket])
+
+  // Recover from connections that a backgrounded/locked phone or a Wi-Fi <->
+  // mobile data handoff silently killed. `readyState` can still report OPEN
+  // on a dead socket, so a live one is probed with a ping/pong round trip
+  // before being trusted; no response within the timeout forces a reconnect
+  // through the same onclose -> scheduleReconnect path used for real drops.
+  useEffect(() => {
+    const recoverConnection = () => {
+      if (viewRef.current !== "text" || !activeUsernameRef.current) {
+        return
+      }
+
+      const currentSocket = wsRef.current
+
+      if (currentSocket && currentSocket.readyState === WebSocket.OPEN) {
+        if (visibilityPongTimeoutRef.current) {
+          return
+        }
+
+        sendSocketMessage({ type: "ping" })
+        visibilityPongTimeoutRef.current = setTimeout(() => {
+          visibilityPongTimeoutRef.current = null
+          if (wsRef.current === currentSocket) {
+            currentSocket.close(4000, "Stale connection probe failed")
+          }
+        }, STALE_CONNECTION_PROBE_TIMEOUT_MS)
+        return
+      }
+
+      if (currentSocket && currentSocket.readyState === WebSocket.CONNECTING) {
+        return
+      }
+
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
+      reconnectAttemptsRef.current = 0
+      connectSocket(activeUsernameRef.current)
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        recoverConnection()
+      }
+    }
+
+    window.addEventListener("online", recoverConnection)
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener("online", recoverConnection)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }, [connectSocket])
 
   useEffect(() => {
     const messagesArea = messagesAreaRef.current
@@ -595,6 +721,7 @@ function App() {
       darkMode={darkMode}
       onToggleTheme={toggleDarkMode}
       ws={ws}
+      isReconnecting={isReconnecting}
       username={username}
       setUsername={setUsername}
       partnerName={partnerName}

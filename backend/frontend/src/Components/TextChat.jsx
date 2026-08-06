@@ -10,7 +10,7 @@ function NextMatchIcon() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
 }
 
-export default function TextChat({ darkMode, onToggleTheme, ws, username, setUsername, partnerName, isConnected, isMatching, isTyping, connectionError, messages, draftMessage, onDraftChange, onSubmit, onSkip, onEnd, onStart, onRetry, messageInputRef, messagesAreaRef, messagesEndRef, onComposerFocus, formatTime }) {
+export default function TextChat({ darkMode, onToggleTheme, ws, isReconnecting, username, setUsername, partnerName, isConnected, isMatching, isTyping, connectionError, messages, draftMessage, onDraftChange, onSubmit, onSkip, onEnd, onStart, onRetry, messageInputRef, messagesAreaRef, messagesEndRef, onComposerFocus, formatTime }) {
   const [showPrivacy, setShowPrivacy] = useState(true)
   const [showMatchModal, setShowMatchModal] = useState(false)
 
@@ -32,7 +32,8 @@ export default function TextChat({ darkMode, onToggleTheme, ws, username, setUse
 
       <div className="tc-messages" ref={messagesAreaRef}>
         <div className="tc-day">Today</div>
-        {!ws && <div className="tc-empty"><img src={chatLogo} alt="PerfectChat logo"/><h3>Start chatting instantly</h3><p>Enter a nickname and connect with someone new.</p><input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Enter your nickname" onKeyDown={(event) => event.key === "Enter" && onStart()}/><button onClick={onStart} disabled={!username.trim()} type="button">Start Anonymous Chat</button>{connectionError && <span>{connectionError}</span>}</div>}
+        {!ws && isReconnecting && <div className="tc-empty tc-status-empty"><img src={chatLogo} alt="PerfectChat logo"/><h3>Reconnecting...</h3><p>Your connection dropped. We&apos;re getting you back into the queue.</p></div>}
+        {!ws && !isReconnecting && <div className="tc-empty"><img src={chatLogo} alt="PerfectChat logo"/><h3>Start chatting instantly</h3><p>Enter a nickname and connect with someone new.</p><input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Enter your nickname" onKeyDown={(event) => event.key === "Enter" && onStart()}/><button onClick={onStart} disabled={!username.trim()} type="button">Start Anonymous Chat</button>{connectionError && <span>{connectionError}</span>}</div>}
         {ws && messages.every((message) => message.sender === "System") && <div className="tc-empty tc-status-empty"><img src={chatLogo} alt="PerfectChat logo"/><h3>{isConnected ? "Connected!" : "Finding Partner..."}</h3><p>{isConnected ? `Start your anonymous conversation with ${partnerName}.` : "Please wait while we match you with someone new."}</p>{!isConnected && <button onClick={onRetry} type="button">Retry Match</button>}</div>}
         {messages.map((message, index) => {
           const outgoing = message.sender === "You"
