@@ -14,11 +14,15 @@ function createRequestHandler() {
     const requestPath = (req.url || "/").split("?")[0]
 
     if (requestPath === "/health") {
-      res.writeHead(200, { "Content-Type": "application/json" })
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" })
       res.end(
         JSON.stringify({
           ok: true,
           service: "chat-backend",
+          pid: process.pid,
+          uptimeSeconds: Math.round(process.uptime()),
+          textWaiting: typeof textWaitingUsers === "undefined" ? null : textWaitingUsers.length,
+          videoWaiting: typeof videoWaitingUsers === "undefined" ? null : videoWaitingUsers.length,
         }),
       )
       return
@@ -418,6 +422,7 @@ wss.on("connection", (ws) => {
   connectionHealth.set(ws, { lastSent: Date.now(), failures: 0, connected: Date.now() })
 
   console.log(`New WebSocket connection established: ${ws.connectionId}`)
+  console.log("[SOCKET_CONNECTED]", { pid: process.pid, socketId: ws.connectionId })
 
   // Send connection confirmation
   sendToClient(ws, {
@@ -734,6 +739,7 @@ process.on("uncaughtException", (error) => {
 
 const PORT = process.env.PORT || 5002
 server.listen(PORT, () => {
+  console.log("[SERVER_STARTED]", { pid: process.pid, port: PORT })
   console.log(`🚀 Secure WebSocket server running on port ${PORT}`)
   console.log(`📊 Server stats: Video users: ${videoUsers.size}, Text users: ${textUsers.size}`)
 })
