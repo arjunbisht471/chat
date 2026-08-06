@@ -3,63 +3,6 @@ const http = require("http")
 const https = require("https")
 const fs = require("fs")
 const path = require("path")
-const crypto = require("crypto")
-
-const DEFAULT_STUN_URLS = [
-  "stun:stun.l.google.com:19302",
-  "stun:stun1.l.google.com:19302",
-  "stun:stun2.l.google.com:19302",
-  "stun:stun3.l.google.com:19302",
-  "stun:stun4.l.google.com:19302",
-]
-
-
-
-function getStunUrls() {
-  const configured = (process.env.STUN_URLS || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean)
-
-  return configured.length > 0 ? configured : DEFAULT_STUN_URLS
-}
-
-function buildTurnServers() {
-  const turnUrls = (process.env.TURN_URLS || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean)
-  const turnSecret = process.env.TURN_SHARED_SECRET
-
-  if (turnUrls.length === 0 || !turnSecret) {
-    return []
-  }
-
-  const ttlSeconds = Number(process.env.TURN_CREDENTIAL_TTL_SECONDS || 3600)
-  const username = `${Math.floor(Date.now() / 1000) + ttlSeconds}:perfactchat`
-  const credential = crypto.createHmac("sha1", turnSecret).update(username).digest("base64")
-
-  return [
-    {
-      urls: turnUrls,
-      username,
-      credential,
-    },
-  ]
-}
-
-function getIceServersPayload() {
-  const turnServers = buildTurnServers()
-
-  if (turnServers.length === 0) {
-    console.warn("[WebRTC] TURN_URLS/TURN_SHARED_SECRET not set; only STUN will be offered to clients, so calls across restrictive NATs/firewalls will fail.")
-  }
-
-  return {
-    iceServers: [{ urls: getStunUrls() }, ...turnServers],
-    turnConfigured: turnServers.length > 0,
-  }
-}
 
 function createRequestHandler() {
   const frontendDistDir = path.resolve(__dirname, "frontend/dist")
@@ -76,15 +19,8 @@ function createRequestHandler() {
         JSON.stringify({
           ok: true,
           service: "chat-backend",
-          connections: typeof wss === "undefined" ? 0 : wss.clients.size,
         }),
       )
-      return
-    }
-
-    if (requestPath === "/api/ice-servers") {
-      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" })
-      res.end(JSON.stringify(getIceServersPayload()))
       return
     }
 
@@ -171,35 +107,17 @@ function createBaseServer() {
 
 const { secure, server } = createBaseServer()
 
-server.keepAliveTimeout = Number(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS || 65000)
-server.headersTimeout = Number(process.env.HTTP_HEADERS_TIMEOUT_MS || 66000)
-server.requestTimeout = Number(process.env.HTTP_REQUEST_TIMEOUT_MS || 30000)
-
 const wss = new WebSocket.Server({
   server,
   perMessageDeflate: false, // Disable compression for better iOS compatibility
-  maxPayload: Number(process.env.MAX_WS_PAYLOAD_BYTES || 256 * 1024),
+  maxPayload: 1024 * 1024, // 1MB max payload
 })
 
 // Separate queues for video and text chat
 const videoUsers = new Map() // Changed to Map for better performance
 const textUsers = new Map()
-const usersBySocket = new Map()
 const videoWaitingUsers = []
 const textWaitingUsers = []
-
-const MAX_MESSAGES_PER_WINDOW = Number(process.env.MAX_MESSAGES_PER_WINDOW || 80)
-const MAX_ICE_CANDIDATES_PER_WINDOW = Number(process.env.MAX_ICE_CANDIDATES_PER_WINDOW || 500)
-const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 10000)
-const MAX_TEXT_LENGTH = Number(process.env.MAX_TEXT_LENGTH || 2000)
-const MAX_BUFFERED_BYTES = Number(process.env.MAX_BUFFERED_BYTES || 1024 * 1024)
-const MAX_CONNECTIONS = Number(process.env.MAX_CONNECTIONS || 10000)
-const RECENT_PARTNER_COOLDOWN_MS = Number(process.env.RECENT_PARTNER_COOLDOWN_MS || 15 * 1000)
-const DEBUG_CONNECTIONS = process.env.DEBUG_CONNECTIONS === "true"
-
-function debugLog(...args) {
-  if (DEBUG_CONNECTIONS) console.log(...args)
-}
 
 // Connection health tracking
 const connectionHealth = new Map()
@@ -214,31 +132,8 @@ function getWaitingList(chatType) {
 }
 
 function getUserBySocket(ws, chatType) {
-  const user = usersBySocket.get(ws)
-  return user && user.chatType === chatType ? user : null
-}
-
-function isRateLimited(ws, messageType) {
-  if (messageType === "ping") return false
-
-  const now = Date.now()
-  if (messageType === "iceCandidate") {
-    if (!ws.iceRateLimit || now - ws.iceRateLimit.startedAt >= RATE_LIMIT_WINDOW_MS) {
-      ws.iceRateLimit = { startedAt: now, count: 1 }
-      return false
-    }
-
-    ws.iceRateLimit.count += 1
-    return ws.iceRateLimit.count > MAX_ICE_CANDIDATES_PER_WINDOW
-  }
-
-  if (!ws.rateLimit || now - ws.rateLimit.startedAt >= RATE_LIMIT_WINDOW_MS) {
-    ws.rateLimit = { startedAt: now, count: 1 }
-    return false
-  }
-
-  ws.rateLimit.count += 1
-  return ws.rateLimit.count > MAX_MESSAGES_PER_WINDOW
+  const usersList = getUsersList(chatType)
+  return Array.from(usersList.values()).find((user) => user.ws === ws) || null
 }
 
 function cancelPendingRematch(ws) {
@@ -277,10 +172,6 @@ function scheduleRematch(ws, chatType, delay = 500) {
 function sendToClient(client, message) {
   try {
     if (client && client.readyState === WebSocket.OPEN) {
-      if (client.bufferedAmount > MAX_BUFFERED_BYTES) {
-        console.warn(`Skipping send to slow client ${client.connectionId}; buffered=${client.bufferedAmount}`)
-        return false
-      }
       console.log(`📤 Sending ${message.type} to client`)
 
       // Add message ID for tracking
@@ -339,29 +230,6 @@ function createMatchId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-function rememberRecentPartner(user, partnerUser) {
-  if (!user || !partnerUser) return
-  if (!user.recentPartners) user.recentPartners = new Map()
-  user.recentPartners.set(partnerUser.connectionId, Date.now() + RECENT_PARTNER_COOLDOWN_MS)
-}
-
-function wasRecentlyMatched(user, candidate) {
-  if (!user?.recentPartners || !candidate) return false
-  const expiresAt = user.recentPartners.get(candidate.connectionId)
-  if (!expiresAt) return false
-  if (expiresAt <= Date.now()) {
-    user.recentPartners.delete(candidate.connectionId)
-    return false
-  }
-  return true
-}
-
-function recentPairBlockedUntil(user, candidate) {
-  const userExpiry = user?.recentPartners?.get(candidate?.connectionId) || 0
-  const candidateExpiry = candidate?.recentPartners?.get(user?.connectionId) || 0
-  return Math.max(userExpiry, candidateExpiry)
-}
-
 function findPartner(client, chatType, isRetry = false) {
   if (!client || client.readyState !== WebSocket.OPEN) {
     return
@@ -393,8 +261,6 @@ function findPartner(client, chatType, isRetry = false) {
       u.ws !== client &&
       !u.partner &&
       u.ws.readyState === WebSocket.OPEN &&
-      !wasRecentlyMatched(user, u) &&
-      !wasRecentlyMatched(u, user) &&
       (connectionHealth.get(u.ws)?.failures ?? 0) <= 2, // Avoid unhealthy connections
   )
 
@@ -473,23 +339,11 @@ function findPartner(client, chatType, isRetry = false) {
       message: `Waiting for a ${chatType} partner... (${waitingList.length} users waiting)`,
       waitingCount: waitingList.length,
     })
-
-    // If the only available sockets are recent partners, retry automatically
-    // when the shortest cooldown expires. This prevents small user pools from
-    // getting stuck forever while still giving a different user first priority.
-    const blockedUntil = waitingList
-      .filter((candidate) => candidate.ws !== client && !candidate.partner && candidate.ws.readyState === WebSocket.OPEN)
-      .map((candidate) => recentPairBlockedUntil(user, candidate))
-      .filter((expiresAt) => expiresAt > Date.now())
-      .sort((a, b) => a - b)[0]
-
-    if (blockedUntil) {
-      scheduleRematch(client, chatType, Math.max(250, blockedUntil - Date.now() + 100))
-    }
   }
 }
 
 function disconnectPartnership(ws, chatType, reason = "disconnect") {
+  const usersList = getUsersList(chatType)
   const user = getUserBySocket(ws, chatType)
 
   if (user && user.partner) {
@@ -497,26 +351,14 @@ function disconnectPartnership(ws, chatType, reason = "disconnect") {
     const partnerSocket = user.partner
 
     // Find partner user object
-    const partnerUser = getUserBySocket(partnerSocket, chatType)
+    const partnerUser = Array.from(usersList.values()).find((u) => u.ws === partnerSocket)
 
     if (partnerUser) {
-      if (reason === "skip") {
-        rememberRecentPartner(user, partnerUser)
-        rememberRecentPartner(partnerUser, user)
-      }
-
-      // Text chat has no camera/mic permission step and no peer-to-peer renegotiation to wait
-      // on, so the surviving partner can safely be requeued server-side for any disconnect
-      // reason, not just "skip" - this removes the text UI's dependency on a client-side
-      // setTimeout (which browsers throttle in backgrounded tabs) to resume matchmaking.
-      // Video chat keeps its original skip-only auto-rematch so its flow is unaffected.
-      const partnerWillAutoRematch = reason === "skip" || chatType === "text"
-
       // Notify partner with specific reason
       sendToClient(partnerSocket, {
         type: "partnerDisconnected",
         reason: reason,
-        shouldFindNew: partnerWillAutoRematch,
+        shouldFindNew: reason === "skip", // Auto-find new partner if skipped
       })
 
       // Reset partner's partnership
@@ -524,10 +366,10 @@ function disconnectPartnership(ws, chatType, reason = "disconnect") {
       partnerUser.partnerId = null
       partnerUser.matchId = null
 
-      // Automatically find the partner a new match so they never need a manual "Find New" click
-      if (partnerWillAutoRematch && partnerSocket.readyState === WebSocket.OPEN) {
-        console.log(`🔄 Auto-finding new partner for ${partnerUser.username} after ${reason}`)
-        scheduleRematch(partnerSocket, chatType, reason === "skip" ? 1000 : 500)
+      // If partner was skipped, automatically find them a new partner
+      if (reason === "skip" && partnerSocket.readyState === WebSocket.OPEN) {
+        console.log(`🔄 Auto-finding new partner for ${partnerUser.username} after skip`)
+        scheduleRematch(partnerSocket, chatType, 1000)
       }
 
       console.log(`Reset partner for ${partnerUser.username}`)
@@ -544,38 +386,36 @@ function cleanupConnection(ws) {
   console.log("🧹 Cleaning up connection")
   cancelPendingRematch(ws)
 
-  const user = usersBySocket.get(ws)
-  if (user) {
-    disconnectPartnership(ws, user.chatType, "connection_lost")
-    removeUserFromWaiting(ws, user.chatType)
-    getUsersList(user.chatType).delete(user.connectionId)
+  // Remove from both user lists
+  for (const [key, user] of videoUsers.entries()) {
+    if (user.ws === ws) {
+      disconnectPartnership(ws, "video", "connection_lost")
+      removeUserFromWaiting(ws, "video")
+      videoUsers.delete(key)
+      break
+    }
+  }
+
+  for (const [key, user] of textUsers.entries()) {
+    if (user.ws === ws) {
+      disconnectPartnership(ws, "text", "connection_lost")
+      removeUserFromWaiting(ws, "text")
+      textUsers.delete(key)
+      break
+    }
   }
 
   // Remove connection health tracking
   connectionHealth.delete(ws)
-  usersBySocket.delete(ws)
 }
 
 wss.on("connection", (ws) => {
-  if (wss.clients.size > MAX_CONNECTIONS) {
-    ws.close(1013, "Server is busy. Please retry shortly.")
-    return
-  }
-
   ws.isAlive = true
   ws.chatType = null
-  ws.rateLimit = { startedAt: Date.now(), count: 0 }
   ws.connectionId = Date.now() + Math.random() // Unique connection ID
 
   // Initialize connection health
-  connectionHealth.set(ws, {
-    lastSent: Date.now(),
-    lastReceived: Date.now(),
-    lastPong: Date.now(),
-    failures: 0,
-    missedHeartbeats: 0,
-    connected: Date.now(),
-  })
+  connectionHealth.set(ws, { lastSent: Date.now(), failures: 0, connected: Date.now() })
 
   console.log(`New WebSocket connection established: ${ws.connectionId}`)
 
@@ -589,18 +429,11 @@ wss.on("connection", (ws) => {
   ws.on("message", async (message) => {
     try {
       const data = JSON.parse(message)
-
-      if (isRateLimited(ws, data.type)) {
-        sendToClient(ws, { type: "error", message: "Too many requests. Please slow down." })
-        return
-      }
       console.log(`📨 Received ${data.type} message from ${ws.connectionId}`)
 
       // Update connection health on any message
       const health = connectionHealth.get(ws) || { lastSent: 0, failures: 0 }
       health.lastReceived = Date.now()
-      health.missedHeartbeats = 0
-      ws.isAlive = true
       connectionHealth.set(ws, health)
 
       switch (data.type) {
@@ -641,11 +474,9 @@ wss.on("connection", (ws) => {
             chatType,
             connectionId: ws.connectionId,
             joinedAt: Date.now(),
-            recentPartners: new Map(),
           }
 
           usersList.set(ws.connectionId, newUser)
-          usersBySocket.set(ws, newUser)
 
           console.log(`✅ ${chatType} user ${finalUsername} connected. Total ${chatType} users: ${usersList.size}`)
           sendToClient(ws, {
@@ -667,7 +498,8 @@ wss.on("connection", (ws) => {
         case "skipPartner":
           if (!ws.chatType) return
 
-          const skippingUser = getUserBySocket(ws, ws.chatType)
+          const usersList2 = ws.chatType === "video" ? videoUsers : textUsers
+          const skippingUser = Array.from(usersList2.values()).find((u) => u.ws === ws)
 
           if (skippingUser) {
             console.log(`⏭️ User ${skippingUser.username} is skipping partner`)
@@ -685,11 +517,7 @@ wss.on("connection", (ws) => {
         case "videoOffer":
           if (ws.chatType !== "video") return
 
-          const offerUser = getUserBySocket(ws, "video")
-          if (!offerUser || !data.matchId || data.matchId !== offerUser.matchId || !data.offer?.type || !data.offer?.sdp) {
-            handleError(ws, "Stale or invalid video offer")
-            return
-          }
+          const offerUser = Array.from(videoUsers.values()).find((u) => u.ws === ws)
           if (offerUser && offerUser.partner && offerUser.partner.readyState === WebSocket.OPEN) {
             console.log(`📞 Forwarding video offer from ${offerUser.username}`)
             const success = sendToClient(offerUser.partner, {
@@ -702,7 +530,7 @@ wss.on("connection", (ws) => {
 
             if (!success) {
               console.log("Failed to forward video offer, partner may be disconnected")
-              disconnectPartnership(ws, ws.chatType, "connection_lost")
+              disconnectPartnership(ws, "video", "connection_lost")
             }
           } else {
             console.log("No valid partner to forward video offer")
@@ -713,11 +541,7 @@ wss.on("connection", (ws) => {
         case "videoAnswer":
           if (ws.chatType !== "video") return
 
-          const answerUser = getUserBySocket(ws, "video")
-          if (!answerUser || !data.matchId || data.matchId !== answerUser.matchId || !data.answer?.type || !data.answer?.sdp) {
-            handleError(ws, "Stale or invalid video answer")
-            return
-          }
+          const answerUser = Array.from(videoUsers.values()).find((u) => u.ws === ws)
           if (answerUser && answerUser.partner && answerUser.partner.readyState === WebSocket.OPEN) {
             console.log(`✅ Forwarding video answer from ${answerUser.username}`)
             const success = sendToClient(answerUser.partner, {
@@ -730,7 +554,7 @@ wss.on("connection", (ws) => {
 
             if (!success) {
               console.log("Failed to forward video answer")
-              disconnectPartnership(ws, ws.chatType, "connection_lost")
+              disconnectPartnership(ws, "video", "connection_lost")
             }
           }
           break
@@ -738,10 +562,7 @@ wss.on("connection", (ws) => {
         case "iceCandidate":
           if (ws.chatType !== "video") return
 
-          const candidateUser = getUserBySocket(ws, "video")
-          if (!candidateUser || !data.matchId || data.matchId !== candidateUser.matchId || !data.candidate?.candidate) {
-            return
-          }
+          const candidateUser = Array.from(videoUsers.values()).find((u) => u.ws === ws)
           if (candidateUser && candidateUser.partner && candidateUser.partner.readyState === WebSocket.OPEN) {
             console.log(`🧊 Forwarding ICE candidate from ${candidateUser.username}`)
             const success = sendToClient(candidateUser.partner, {
@@ -777,7 +598,7 @@ wss.on("connection", (ws) => {
         case "textMessage":
           if (ws.chatType !== "text") return
 
-          const messageUser = getUserBySocket(ws, "text")
+          const messageUser = Array.from(textUsers.values()).find((u) => u.ws === ws)
           if (!messageUser) {
             handleError(ws, "User not found")
             return
@@ -794,11 +615,6 @@ wss.on("connection", (ws) => {
             return
           }
 
-          if (messageContent.length > MAX_TEXT_LENGTH) {
-            handleError(ws, `Message is too long. Maximum ${MAX_TEXT_LENGTH} characters.`)
-            return
-          }
-
           console.log(`💬 Forwarding message from ${messageUser.username} to partner`)
           sendToClient(messageUser.partner, {
             type: "textMessage",
@@ -811,7 +627,7 @@ wss.on("connection", (ws) => {
         case "typing":
           if (ws.chatType !== "text") return
 
-          const typingUser = getUserBySocket(ws, "text")
+          const typingUser = Array.from(textUsers.values()).find((u) => u.ws === ws)
           if (typingUser && typingUser.partner && typingUser.partner.readyState === WebSocket.OPEN) {
             sendToClient(typingUser.partner, {
               type: "typing",
@@ -824,7 +640,8 @@ wss.on("connection", (ws) => {
         case "disconnect":
           if (!ws.chatType) return
 
-          const disconnectingUser = getUserBySocket(ws, ws.chatType)
+          const usersList3 = ws.chatType === "video" ? videoUsers : textUsers
+          const disconnectingUser = Array.from(usersList3.values()).find((u) => u.ws === ws)
 
           if (disconnectingUser) {
             console.log(`👋 User ${disconnectingUser.username} manually disconnected`)
@@ -845,7 +662,6 @@ wss.on("connection", (ws) => {
     ws.isAlive = true
     const health = connectionHealth.get(ws) || { lastSent: 0, failures: 0 }
     health.lastPong = Date.now()
-    health.missedHeartbeats = 0
     connectionHealth.set(ws, health)
     console.log(`🏓 Received pong from client ${ws.connectionId}`)
   })
@@ -866,30 +682,15 @@ const heartbeat = setInterval(() => {
   console.log(`💓 Heartbeat check - Active connections: ${activeConnections.length}`)
 
   wss.clients.forEach((ws) => {
-    const health = connectionHealth.get(ws) || {
-      lastSent: Date.now(),
-      lastReceived: Date.now(),
-      lastPong: Date.now(),
-      failures: 0,
-      missedHeartbeats: 0,
-    }
+    const health = connectionHealth.get(ws)
 
-    if (ws.isAlive === false) {
-      health.missedHeartbeats = (health.missedHeartbeats || 0) + 1
-    } else {
-      health.missedHeartbeats = 0
-    }
-    connectionHealth.set(ws, health)
-
-    if (health.missedHeartbeats >= 6 || health.failures > 3) {
+    if (ws.isAlive === false || (health && health.failures > 3)) {
       console.log(`💀 Terminating unhealthy connection ${ws.connectionId}`)
       cleanupConnection(ws)
       return ws.terminate()
     }
 
-    // A matched user may legitimately be silent for a long time. WebSocket
-    // ping/pong above is the source of truth; chat-message inactivity is not.
-    if (false && health && Date.now() - health.lastReceived > 120000) {
+    if (health && Date.now() - health.lastReceived > 120000) {
       console.log(`⚠️ Stale connection detected ${ws.connectionId}`)
       cleanupConnection(ws)
       return ws.terminate()
