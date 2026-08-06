@@ -64,6 +64,7 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
   const queuedCandidatesRef = useRef([])
   const hasRemoteDescriptionRef = useRef(false)
   const currentMatchIdRef = useRef(null)
+  const peerConnectionSetupRef = useRef(null)
   const shouldCreateOfferRef = useRef(false)
   const manualSocketCloseRef = useRef(false)
   const requestPartnerTimerRef = useRef(null)
@@ -145,6 +146,7 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
     clearPartnerSearchTimer()
     queuedCandidatesRef.current = []
     hasRemoteDescriptionRef.current = false
+    peerConnectionSetupRef.current = null
 
     if (iceDisconnectTimerRef.current) {
       window.clearTimeout(iceDisconnectTimerRef.current)
@@ -244,8 +246,8 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
     showToast("Connection lost. Please start the video chat again.")
   }
 
-  const createPeerConnection = (matchId) => {
-    const rtcConfiguration = getRtcConfiguration()
+  const createPeerConnection = async (matchId) => {
+    const rtcConfiguration = await getRtcConfiguration()
     rtcLog("creating peer connection", {
       matchId,
       iceTransportPolicy: rtcConfiguration.iceTransportPolicy,
@@ -374,6 +376,35 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
     return peerConnection
   }
 
+  // "matched" and "videoOffer" can both arrive before the async ICE-server fetch inside
+  // createPeerConnection resolves. Without dedup, both handlers would race to create their
+  // own RTCPeerConnection and stomp on peerConnectionRef, breaking ICE candidate routing.
+  const ensurePeerConnection = (matchId, stream) => {
+    if (peerConnectionRef.current && currentMatchIdRef.current === matchId) {
+      return Promise.resolve(peerConnectionRef.current)
+    }
+
+    if (!peerConnectionSetupRef.current || peerConnectionSetupRef.current.matchId !== matchId) {
+      peerConnectionSetupRef.current = {
+        matchId,
+        promise: createPeerConnection(matchId).then((pc) => {
+          if (currentMatchIdRef.current !== matchId) {
+            pc.close()
+            return pc
+          }
+
+          stream.getTracks().forEach((track) => {
+            pc.addTrack(track, stream)
+          })
+          peerConnectionRef.current = pc
+          return pc
+        }),
+      }
+    }
+
+    return peerConnectionSetupRef.current.promise
+  }
+
   const processQueuedCandidates = async (matchId) => {
     if (currentMatchIdRef.current !== matchId || queuedCandidatesRef.current.length === 0) {
       return
@@ -408,12 +439,10 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
     let peerConnection = peerConnectionRef.current
 
     if (!peerConnection) {
-      peerConnection = createPeerConnection(matchId)
-      peerConnectionRef.current = peerConnection
-
-      stream.getTracks().forEach((track) => {
-        peerConnection.addTrack(track, stream)
-      })
+      peerConnection = await ensurePeerConnection(matchId, stream)
+      if (currentMatchIdRef.current !== matchId) {
+        return
+      }
     }
 
     if (!shouldCreateOffer || peerConnection.signalingState !== "stable") {
@@ -450,11 +479,10 @@ function VideoChat({ initialUsername = "", onBack = () => {} }) {
 
     let peerConnection = peerConnectionRef.current
     if (!peerConnection) {
-      peerConnection = createPeerConnection(matchId)
-      peerConnectionRef.current = peerConnection
-      stream.getTracks().forEach((track) => {
-        peerConnection.addTrack(track, stream)
-      })
+      peerConnection = await ensurePeerConnection(matchId, stream)
+      if (currentMatchIdRef.current !== matchId) {
+        return
+      }
     }
 
     if (shouldCreateOfferRef.current && peerConnection.signalingState !== "stable") {

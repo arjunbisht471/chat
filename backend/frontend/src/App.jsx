@@ -291,10 +291,21 @@ function App() {
           setIsTyping(false)
           setIsMatching(true)
           setMatchedAt(null)
-          addSystemMessage("Your chat partner disconnected. Finding someone new...")
-          setTimeout(() => {
-            requestPartner()
-          }, 600)
+          setMessages([])
+          addSystemMessage(
+            data.reason === "skip"
+              ? "Partner skipped. Finding a new person..."
+              : "Your chat partner disconnected. Finding someone new...",
+          )
+
+          // The server already queues a rematch for us (see disconnectPartnership in
+          // server.js) whenever shouldFindNew is true. Only fall back to a client-triggered
+          // request when it isn't, so we never race the server's own scheduled match.
+          if (!data.shouldFindNew) {
+            setTimeout(() => {
+              requestPartner()
+            }, 600)
+          }
           break
 
         case "error":
@@ -467,6 +478,7 @@ function App() {
     setIsTyping(false)
     setIsMatching(true)
     setMatchedAt(null)
+    setMessages([])
     addSystemMessage("Looking for a new conversation...")
   }
 

@@ -21,7 +21,14 @@ export function getWebSocketUrl() {
   return `${protocol}://${host}:${port}`
 }
 
-export function getRtcConfiguration() {
+function getHttpBaseUrl() {
+  const wsUrl = getWebSocketUrl()
+  if (wsUrl.startsWith("wss://")) return `https://${wsUrl.slice(6)}`
+  if (wsUrl.startsWith("ws://")) return `http://${wsUrl.slice(5)}`
+  return wsUrl
+}
+
+function getStaticIceServers() {
   const stunUrls = (import.meta.env.VITE_STUN_URLS || "")
     .split(",")
     .map((value) => value.trim())
@@ -58,6 +65,28 @@ export function getRtcConfiguration() {
     })
   } else if (import.meta.env.PROD) {
     console.warn("[WebRTC] TURN is not configured; calls may fail across restrictive networks.")
+  }
+
+  return iceServers
+}
+
+// The signaling server hands out short-lived TURN credentials (generated from a shared
+// secret, see backend `/api/ice-servers`) so relayed calls work without baking a permanent
+// TURN password into the public frontend bundle. Falls back to the static VITE_TURN_* env
+// vars (or STUN-only) if that endpoint can't be reached, e.g. during local frontend-only dev.
+export async function getRtcConfiguration() {
+  let iceServers = getStaticIceServers()
+
+  try {
+    const response = await fetch(`${getHttpBaseUrl()}/api/ice-servers`, { cache: "no-store" })
+    if (response.ok) {
+      const data = await response.json()
+      if (Array.isArray(data.iceServers) && data.iceServers.length > 0) {
+        iceServers = data.iceServers
+      }
+    }
+  } catch (error) {
+    console.warn("[WebRTC] Could not fetch ICE servers from signaling server, using static config", error)
   }
 
   return {

@@ -3,6 +3,63 @@ const http = require("http")
 const https = require("https")
 const fs = require("fs")
 const path = require("path")
+const crypto = require("crypto")
+
+const DEFAULT_STUN_URLS = [
+  "stun:stun.l.google.com:19302",
+  "stun:stun1.l.google.com:19302",
+  "stun:stun2.l.google.com:19302",
+  "stun:stun3.l.google.com:19302",
+  "stun:stun4.l.google.com:19302",
+]
+
+
+
+function getStunUrls() {
+  const configured = (process.env.STUN_URLS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  return configured.length > 0 ? configured : DEFAULT_STUN_URLS
+}
+
+function buildTurnServers() {
+  const turnUrls = (process.env.TURN_URLS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+  const turnSecret = process.env.TURN_SHARED_SECRET
+
+  if (turnUrls.length === 0 || !turnSecret) {
+    return []
+  }
+
+  const ttlSeconds = Number(process.env.TURN_CREDENTIAL_TTL_SECONDS || 3600)
+  const username = `${Math.floor(Date.now() / 1000) + ttlSeconds}:perfactchat`
+  const credential = crypto.createHmac("sha1", turnSecret).update(username).digest("base64")
+
+  return [
+    {
+      urls: turnUrls,
+      username,
+      credential,
+    },
+  ]
+}
+
+function getIceServersPayload() {
+  const turnServers = buildTurnServers()
+
+  if (turnServers.length === 0) {
+    console.warn("[WebRTC] TURN_URLS/TURN_SHARED_SECRET not set; only STUN will be offered to clients, so calls across restrictive NATs/firewalls will fail.")
+  }
+
+  return {
+    iceServers: [{ urls: getStunUrls() }, ...turnServers],
+    turnConfigured: turnServers.length > 0,
+  }
+}
 
 function createRequestHandler() {
   const frontendDistDir = path.resolve(__dirname, "frontend/dist")
@@ -22,6 +79,12 @@ function createRequestHandler() {
           connections: typeof wss === "undefined" ? 0 : wss.clients.size,
         }),
       )
+      return
+    }
+
+    if (requestPath === "/api/ice-servers") {
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" })
+      res.end(JSON.stringify(getIceServersPayload()))
       return
     }
 
@@ -442,11 +505,18 @@ function disconnectPartnership(ws, chatType, reason = "disconnect") {
         rememberRecentPartner(partnerUser, user)
       }
 
+      // Text chat has no camera/mic permission step and no peer-to-peer renegotiation to wait
+      // on, so the surviving partner can safely be requeued server-side for any disconnect
+      // reason, not just "skip" - this removes the text UI's dependency on a client-side
+      // setTimeout (which browsers throttle in backgrounded tabs) to resume matchmaking.
+      // Video chat keeps its original skip-only auto-rematch so its flow is unaffected.
+      const partnerWillAutoRematch = reason === "skip" || chatType === "text"
+
       // Notify partner with specific reason
       sendToClient(partnerSocket, {
         type: "partnerDisconnected",
         reason: reason,
-        shouldFindNew: reason === "skip", // Auto-find new partner if skipped
+        shouldFindNew: partnerWillAutoRematch,
       })
 
       // Reset partner's partnership
@@ -454,10 +524,10 @@ function disconnectPartnership(ws, chatType, reason = "disconnect") {
       partnerUser.partnerId = null
       partnerUser.matchId = null
 
-      // If partner was skipped, automatically find them a new partner
-      if (reason === "skip" && partnerSocket.readyState === WebSocket.OPEN) {
-        console.log(`🔄 Auto-finding new partner for ${partnerUser.username} after skip`)
-        scheduleRematch(partnerSocket, chatType, 1000)
+      // Automatically find the partner a new match so they never need a manual "Find New" click
+      if (partnerWillAutoRematch && partnerSocket.readyState === WebSocket.OPEN) {
+        console.log(`🔄 Auto-finding new partner for ${partnerUser.username} after ${reason}`)
+        scheduleRematch(partnerSocket, chatType, reason === "skip" ? 1000 : 500)
       }
 
       console.log(`Reset partner for ${partnerUser.username}`)

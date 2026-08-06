@@ -33,7 +33,7 @@ export default function TextChat({ darkMode, onToggleTheme, ws, username, setUse
       <div className="tc-messages" ref={messagesAreaRef}>
         <div className="tc-day">Today</div>
         {!ws && <div className="tc-empty"><img src={chatLogo} alt="PerfectChat logo"/><h3>Start chatting instantly</h3><p>Enter a nickname and connect with someone new.</p><input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Enter your nickname" onKeyDown={(event) => event.key === "Enter" && onStart()}/><button onClick={onStart} disabled={!username.trim()} type="button">Start Anonymous Chat</button>{connectionError && <span>{connectionError}</span>}</div>}
-        {ws && messages.length === 0 && <div className="tc-empty tc-status-empty"><img src={chatLogo} alt="PerfectChat logo"/><h3>{isConnected ? "Connected!" : "Finding Partner..."}</h3><p>{isConnected ? `Start your anonymous conversation with ${partnerName}.` : "Please wait while we match you with someone new."}</p>{!isConnected && <button onClick={onRetry} type="button">Retry Match</button>}</div>}
+        {ws && messages.every((message) => message.sender === "System") && <div className="tc-empty tc-status-empty"><img src={chatLogo} alt="PerfectChat logo"/><h3>{isConnected ? "Connected!" : "Finding Partner..."}</h3><p>{isConnected ? `Start your anonymous conversation with ${partnerName}.` : "Please wait while we match you with someone new."}</p>{!isConnected && <button onClick={onRetry} type="button">Retry Match</button>}</div>}
         {messages.map((message, index) => {
           const outgoing = message.sender === "You"
           const system = message.sender === "System"
