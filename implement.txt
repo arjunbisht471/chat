@@ -1,0 +1,133 @@
+IMPLEMENT.TXT - Text Chat remote-connection fix: step by step
+================================================================
+Full technical findings are in debug.md (same folder). This file is the
+"what to actually do, in order" version.
+
+------------------------------------------------------------
+STEP 0 - Port check (already done, result: OK)
+------------------------------------------------------------
+backend/server.js  -> const PORT = process.env.PORT || 5002   (line 740)
+backend/nginx.conf -> proxy_pass http://127.0.0.1:5002         (line 6)
+frontend config.js -> production mode connects to wss://<same domain>,
+                      NO hardcoded port at all (it relies on nginx to
+                      forward that to 5002 internally).
+
+These three match correctly. Port 5002 is NOT the problem. No fix needed
+here.
+
+------------------------------------------------------------
+STEP 1 - Deploy the current code to the live Hostinger server
+------------------------------------------------------------
+IMPORTANT: Pushing to GitHub does NOT automatically deploy to Hostinger.
+This repo has no .github/workflows folder, so there is no auto build/
+deploy pipeline defined in the code itself. If your live site updates by
+itself after a GitHub push, that is a Hostinger-panel feature (hPanel ->
+Git / Deployments), not something in this repository - you must check
+your Hostinger panel to know if that is turned on.
+
+If you are NOT sure whether it is turned on, do it manually every time:
+
+  SSH into the VPS, then:
+
+    cd /path/to/chat/backend        (wherever you cloned the repo)
+    git pull origin main
+    npm run build
+    pm2 restart all                 (if you use PM2)
+    -- OR --
+    pm2 list                        (find the process name/id)
+    pm2 restart <name-or-id>
+    -- OR, if you just run node directly --
+    ps aux | grep node              (find the old process)
+    kill <PID>
+    node server.js &                (or however you normally start it)
+
+Without this step, the live server keeps running old code even after
+GitHub shows the new commit.
+
+------------------------------------------------------------
+STEP 2 - Confirm: is more than one Node process running?
+------------------------------------------------------------
+This is the #1 suspect (see debug.md section 5 and 19). It can now be
+checked WITHOUT SSH access, using the pid field just added to /health.
+
+  1. Open this URL in a browser (or curl it), refresh 5-6 times:
+       https://perfactchat.com/health
+
+  2. Look at the "pid" number in the JSON response each time.
+
+     - Same pid every time  -> only ONE process is serving requests.
+       The bug is NOT multiple processes; move to Step 4.
+
+     - Different pid between refreshes -> MORE THAN ONE process (or
+       load-balanced instances) is serving this domain. This is the
+       root cause. Go to Step 3.
+
+  If you have SSH access, also run and save the output:
+       pm2 list
+       ps aux | grep node
+       lsof -i :5002
+
+------------------------------------------------------------
+STEP 3 - If Step 2 shows multiple processes: fix on Hostinger, not in code
+------------------------------------------------------------
+This app's in-memory queue design REQUIRES exactly one process. There is
+no cluster/pm2 config in this codebase (confirmed by full repo search),
+so if multiple processes exist, someone (or some Hostinger auto-scaling
+setting) started an extra one outside of git. To fix:
+
+  - If PM2 is involved: make sure ecosystem/app config uses
+        instances: 1
+        exec_mode: "fork"
+    (never "max" or "cluster")
+
+  - If it's a manually started duplicate: find the extra process with
+        ps aux | grep node
+    and stop the extra one, keep only one running on port 5002.
+
+  - If nginx has more than one upstream/backend server listed (a real
+    load balancer, not just this repo's simple proxy_pass), reduce it
+    to a single backend, OR point it permanently at ONE instance with
+    a consistent port.
+
+  - Also pull the ACTUAL live nginx config on the VPS and compare it to
+    backend/nginx.conf in this repo (the committed file only has a
+    "listen 80" block, no HTTPS/443 block - the real HTTPS config lives
+    only on the server, most likely auto-added by Certbot, and may have
+    been edited when the "load balancer changes" were made):
+        sudo nginx -T
+    or read the files under:
+        /etc/nginx/sites-enabled/
+
+------------------------------------------------------------
+STEP 4 - Re-test with the required matrix
+------------------------------------------------------------
+After redeploying (Step 1) and fixing anything found in Step 2/3, run
+these tests (also listed in debug.md section 17):
+
+  1. Laptop on Wi-Fi + phone on same Wi-Fi           -> should match
+  2. Laptop on Wi-Fi + phone on mobile data          -> should match
+  3. Two devices on two different Wi-Fi networks     -> should match
+  4. Two people in different cities/locations        -> should match
+  5. User waiting, then refreshes the page           -> old entry gone
+  6. Two matched users, one clicks Skip               -> clean rematch
+  7. User switches Wi-Fi -> mobile data mid-session   -> auto reconnect
+
+While testing 2-4, keep https://perfactchat.com/health open in another
+tab and refresh it - note the pid each time a real user connects, and
+check server console logs for lines starting with [SOCKET_CONNECTED]
+(now includes pid) to see if both test users land on the same pid.
+
+------------------------------------------------------------
+STEP 5 - How to push these files (debug.md, implement.txt, server.js) to GitHub
+------------------------------------------------------------
+From the project folder (chat/) run:
+
+    git add debug.md implement.txt backend/server.js
+    git commit -m "Add debug report and deployment guide for remote-connection issue"
+    git push origin main
+
+After this finishes, go back to STEP 1 and manually deploy on the VPS -
+remember, the GitHub push by itself does not update the live server
+unless Hostinger's own Git auto-deploy setting is turned on for this
+repo (check your hPanel to confirm; it is not something visible from
+the code side).
